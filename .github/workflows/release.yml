@@ -42,7 +42,9 @@ jobs:
           EOF
 
       - name: Compilar APK release
-        run: ./gradlew assembleRelease --no-daemon
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
         working-directory: android
 
       - name: Renombrar APK
