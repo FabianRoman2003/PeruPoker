@@ -1,0 +1,4 @@
+# Config para Netlify: publica la carpeta landing/ (sin build, es HTML estático)
+[build]
+  publish = "landing"
+  command = ""
