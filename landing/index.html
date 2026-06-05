@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PeruPoker — La caja, la mesa y el reloj de tu partida</title>
+<meta name="description" content="App para partidas caseras de poker cash: cuadra el dinero, ordena el dealer y controla el tiempo. Sin discusiones, sin descuadres." />
+<style>
+  :root{
+    --felt:#0B6E4F; --feltDark:#063D2C; --bg:#0E1116; --card:#1A1F26;
+    --cardLight:#232A33; --text:#F2F4F7; --dim:#9AA4B2; --gold:#E7B53C;
+    --green:#2FBF71; --red:#E5484D; --border:#2A323D;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.5}
+  .wrap{max-width:1040px;margin:0 auto;padding:0 20px}
+  a{color:inherit;text-decoration:none}
+
+  /* HERO */
+  header{background:radial-gradient(120% 120% at 50% 0%, var(--felt) 0%, var(--feltDark) 55%, var(--bg) 100%);
+    padding:64px 0 56px;text-align:center;border-bottom:1px solid var(--border)}
+  .chip{display:inline-block;font-size:13px;letter-spacing:2px;color:#CDEBDD;border:1px solid #ffffff33;
+    padding:6px 14px;border-radius:999px;margin-bottom:20px}
+  h1{font-size:clamp(34px,6vw,58px);font-weight:900;letter-spacing:-1px}
+  .tag{color:#E7F5EE;font-size:clamp(16px,2.4vw,21px);margin:14px auto 30px;max-width:620px}
+  .btn{display:inline-block;background:var(--gold);color:#3A2D00;font-weight:900;font-size:18px;
+    padding:16px 34px;border-radius:14px;box-shadow:0 8px 24px #0006;transition:transform .12s}
+  .btn:hover{transform:translateY(-2px)}
+  .btn.ghost{background:transparent;color:var(--text);border:1px solid var(--border);margin-left:10px}
+  .sub{color:#CDEBDD;font-size:13px;margin-top:14px}
+
+  /* FEATURES */
+  section{padding:64px 0}
+  h2{font-size:clamp(26px,4vw,38px);font-weight:900;text-align:center;margin-bottom:8px}
+  .lead{text-align:center;color:var(--dim);max-width:560px;margin:0 auto 42px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px}
+  .feat{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:26px}
+  .feat .ico{font-size:34px;margin-bottom:12px}
+  .feat h3{font-size:20px;margin-bottom:8px}
+  .feat p{color:var(--dim);font-size:15px}
+
+  /* STEPS */
+  .steps{background:var(--card);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+  .stepgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px;margin-top:30px}
+  .step{padding:22px;border:1px solid var(--border);border-radius:14px;background:var(--bg)}
+  .step .n{width:34px;height:34px;border-radius:50%;background:var(--gold);color:#3A2D00;
+    font-weight:900;display:flex;align-items:center;justify-content:center;margin-bottom:12px}
+  .note{background:#E7B53C1a;border:1px solid #E7B53C55;border-radius:12px;padding:14px 16px;
+    color:#F1DFB0;font-size:14px;margin-top:26px}
+
+  footer{text-align:center;padding:40px 0;color:var(--dim);font-size:14px;border-top:1px solid var(--border)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div class="chip">🃏 TEXAS HOLD'EM CASH · CIEGAS 1/2</div>
+    <h1>PeruPoker</h1>
+    <p class="tag">Tu partida casera sin descuadres, sin discutir a quién le toca dealer y sin que nadie se demore. La caja, la mesa y el reloj en una sola app.</p>
+    <a class="btn" id="download" href="#">⬇️ Descargar APK (Android)</a>
+    <a class="btn ghost" href="#como">Cómo instalar</a>
+    <p class="sub" id="versionLine">Última versión · gratis</p>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <h2>3 cerebros, una sola mesa</h2>
+    <p class="lead">Todos los jugadores comparten la misma sesión en vivo. Nadie vuelve a anotar en el bloc de notas.</p>
+    <div class="grid">
+      <div class="feat">
+        <div class="ico">🪙</div>
+        <h3>La Caja</h3>
+        <p>Botón +20 por jugador, “dinero en mesa” en tiempo real y un cierre que <b>bloquea si no cuadra</b> y te dice quién le paga a quién.</p>
+      </div>
+      <div class="feat">
+        <div class="ico">🎲</div>
+        <h3>La Mesa</h3>
+        <p>Mesa visual con el botón y las ciegas rotando solas. El dealer puede jugar o solo repartir. Hasta 9 jugadores, sin equivocarse.</p>
+      </div>
+      <div class="feat">
+        <div class="ico">⏱️</div>
+        <h3>El Reloj</h3>
+        <p>Shot clock con un botón gigante para pasar de turno, pausa y reinicio. Vibra en los últimos 5 segundos. Nadie se duerme.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="steps" id="como">
+  <div class="wrap">
+    <h2>Instalar en 3 pasos</h2>
+    <p class="lead">El APK se instala directo, fuera de la Play Store.</p>
+    <div class="stepgrid">
+      <div class="step"><div class="n">1</div><h3>Descarga el APK</h3><p>Toca el botón de arriba desde tu celular Android.</p></div>
+      <div class="step"><div class="n">2</div><h3>Permite la instalación</h3><p>Android pedirá habilitar “instalar apps de orígenes desconocidos”. Acepta.</p></div>
+      <div class="step"><div class="n">3</div><h3>¡A jugar!</h3><p>Abre PeruPoker, crea la mesa y comparte el código con tus amigos.</p></div>
+    </div>
+    <div class="note">⚠️ Es una app entre amigos (sin login). Tus datos de la partida viven solo en la mesa, no se publican.</div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    PeruPoker · Hecho en Cochabamba 🇧🇴 · <a id="ghlink" href="#" style="color:var(--gold)">Ver en GitHub</a>
+  </div>
+</footer>
+
+<script>
+  // 👇 EDITA esto con tu usuario/repo de GitHub cuando lo creemos
+  const REPO = "FabianRoman2003/PeruPoker";
+  const dl = `https://github.com/${REPO}/releases/latest/download/PeruPoker.apk`;
+  document.getElementById("download").href = dl;
+  document.getElementById("ghlink").href = `https://github.com/${REPO}`;
+</script>
+
+</body>
+</html>

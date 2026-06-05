@@ -1,0 +1,55 @@
+name: Build & Release APK
+
+# Se dispara cuando subes un tag tipo v0.2, v0.3, etc.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch: {} # también se puede lanzar a mano desde la pestaña Actions
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # necesario para crear el Release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Restaurar keystore de firma (desde Secrets)
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/perupoker-release.keystore
+          cat > android/app/keystore.properties <<EOF
+          storeFile=perupoker-release.keystore
+          storePassword=${{ secrets.STORE_PASSWORD }}
+          keyAlias=${{ secrets.KEY_ALIAS }}
+          keyPassword=${{ secrets.KEY_PASSWORD }}
+          EOF
+
+      - name: Compilar APK release
+        run: ./gradlew assembleRelease --no-daemon
+        working-directory: android
+
+      - name: Renombrar APK
+        run: cp android/app/build/outputs/apk/release/app-release.apk PeruPoker.apk
+
+      - name: Publicar en Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          files: PeruPoker.apk
+          generate_release_notes: true

@@ -35,6 +35,10 @@ local.properties
 !debug.keystore
 .kotlin/
 
+# Firma release — NUNCA subir secretos (van como GitHub Secrets en CI)
+keystore.properties
+keystore.base64.txt
+
 # node.js
 #
 node_modules/
