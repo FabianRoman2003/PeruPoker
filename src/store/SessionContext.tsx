@@ -1,7 +1,9 @@
-import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Player, SeatStatus, SessionState } from '../types';
 import { advanceButton, activeSeats, nextActiveSeat, positions } from '../logic/poker';
 
+const STORAGE_KEY = '@perupoker_session';
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 // Datos de ejemplo para que la base se vea funcionando de una vez
@@ -33,6 +35,8 @@ interface Ctx {
   removePlayer: (id: string) => void;
   renamePlayer: (id: string, name: string) => void;
   cycleStatus: (id: string) => void;
+  setStatus: (id: string, status: SeatStatus) => void;
+  setButton: (seat: number) => void;
   addBuyin: (id: string) => void;
   removeBuyin: (id: string) => void;
   setCashout: (id: string, chips: number | null) => void;
@@ -41,6 +45,7 @@ interface Ctx {
   setBoxValue: (v: number) => void;
   setShotClock: (v: number) => void;
   resetCashouts: () => void;
+  newSession: () => void;
 }
 
 const SessionCtx = createContext<Ctx | null>(null);
@@ -49,6 +54,24 @@ const STATUS_CYCLE: SeatStatus[] = ['juega', 'descansa', 'solo_reparte'];
 
 export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, setState] = useState<SessionState>(initialState);
+  const [loaded, setLoaded] = useState(false);
+
+  // Cargar la sesión guardada al abrir la app
+  useEffect(() => {
+    AsyncStorage.getItem(STORAGE_KEY).then(raw => {
+      if (raw) {
+        try {
+          setState(JSON.parse(raw));
+        } catch {}
+      }
+      setLoaded(true);
+    });
+  }, []);
+
+  // Guardar automáticamente en cada cambio (después de cargar)
+  useEffect(() => {
+    if (loaded) AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }, [state, loaded]);
 
   const addPlayer = useCallback((name: string) => {
     setState(s => {
@@ -75,7 +98,7 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const renamePlayer = useCallback((id: string, name: string) => {
     setState(s => ({
       ...s,
-      players: s.players.map(p => (p.id === id ? { ...p, name } : p)),
+      players: s.players.map(p => (p.id === id ? { ...p, name: name.trim() || p.name } : p)),
     }));
   }, []);
 
@@ -88,6 +111,18 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
           : p,
       ),
     }));
+  }, []);
+
+  const setStatus = useCallback((id: string, status: SeatStatus) => {
+    setState(s => ({
+      ...s,
+      players: s.players.map(p => (p.id === id ? { ...p, status } : p)),
+    }));
+  }, []);
+
+  // Mover el botón de dealer manualmente al asiento elegido
+  const setButton = useCallback((seat: number) => {
+    setState(s => ({ ...s, buttonSeat: seat }));
   }, []);
 
   const addBuyin = useCallback((id: string) => {
@@ -123,7 +158,6 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const button = advanceButton(s);
       const active = activeSeats(s.players);
       const pos = positions({ ...s, buttonSeat: button });
-      // primero en hablar preflop (UTG); en heads-up el SB
       const acting = pos.utg ?? nextActiveSeat(button ?? 0, active);
       return { ...s, buttonSeat: button, actingSeat: acting, handNumber: s.handNumber + 1 };
     });
@@ -141,6 +175,16 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setState(s => ({ ...s, shotClockSeconds: v }));
   }, []);
 
+  // Empezar una mesa nueva (mantiene a los jugadores, reinicia dinero y cuentas)
+  const newSession = useCallback(() => {
+    setState(s => ({
+      ...s,
+      players: s.players.map(p => ({ ...p, buyins: 1, cashout: null })),
+      handNumber: 1,
+      log: [],
+    }));
+  }, []);
+
   const value = useMemo<Ctx>(
     () => ({
       state,
@@ -148,6 +192,8 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       removePlayer,
       renamePlayer,
       cycleStatus,
+      setStatus,
+      setButton,
       addBuyin,
       removeBuyin,
       setCashout,
@@ -156,6 +202,7 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setBoxValue,
       setShotClock,
       resetCashouts,
+      newSession,
     }),
     [
       state,
@@ -163,6 +210,8 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       removePlayer,
       renamePlayer,
       cycleStatus,
+      setStatus,
+      setButton,
       addBuyin,
       removeBuyin,
       setCashout,
@@ -171,6 +220,7 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setBoxValue,
       setShotClock,
       resetCashouts,
+      newSession,
     ],
   );
 

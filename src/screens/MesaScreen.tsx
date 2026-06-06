@@ -1,5 +1,14 @@
-import React from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useState } from 'react';
+import {
+  Alert,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { colors } from '../theme/colors';
 import { useSession } from '../store/SessionContext';
 import { dealerOrder, positions } from '../logic/poker';
@@ -15,25 +24,40 @@ const STATUS_LABEL: Record<SeatStatus, string> = {
   descansa: 'Descansa',
   solo_reparte: 'Reparte',
 };
+const STATUSES: SeatStatus[] = ['juega', 'descansa', 'solo_reparte'];
 
 export default function MesaScreen() {
-  const { state, nextHand, cycleStatus } = useSession();
+  const { state, nextHand, setButton, setStatus, renamePlayer, removePlayer } = useSession();
   const { players } = state;
   const pos = positions(state);
   const order = dealerOrder(state);
-  const nameOf = (seat: number) => players.find(p => p.seat === seat)?.name ?? '—';
+  const nameOf = (seat: number | null) => players.find(p => p.seat === seat)?.name ?? '—';
+
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const selected = players.find(p => p.id === selectedId) ?? null;
+
+  const open = (id: string, name: string) => {
+    setSelectedId(id);
+    setEditName(name);
+  };
+  const close = () => setSelectedId(null);
 
   const N = players.length;
-  const RX = 40; // radios en %
+  const RX = 40;
   const RY = 38;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 24 }}>
-      <Text style={styles.handLabel}>Mano #{state.handNumber}</Text>
+      <View style={styles.posBar}>
+        <Pos label="🔘 Dealer" name={nameOf(pos.button)} c={colors.gold} />
+        <Pos label="1 Ciega" name={nameOf(pos.sb)} c={colors.blue} />
+        <Pos label="2 Ciega" name={nameOf(pos.bb)} c={colors.red} />
+      </View>
 
       <View style={styles.table}>
         <View style={styles.tableCenter}>
-          <Text style={styles.centerText}>Ciegas</Text>
+          <Text style={styles.centerText}>Mano #{state.handNumber}</Text>
           <Text style={styles.centerBlinds}>
             {state.smallBlind} / {state.bigBlind}
           </Text>
@@ -49,14 +73,15 @@ export default function MesaScreen() {
           return (
             <TouchableOpacity
               key={p.id}
-              onPress={() => cycleStatus(p.id)}
+              onPress={() => open(p.id, p.name)}
               style={[
                 styles.seat,
                 {
                   left: `${x}%`,
                   top: `${y}%`,
-                  borderColor: STATUS_COLOR[p.status],
-                  opacity: p.status === 'descansa' ? 0.55 : 1,
+                  borderColor: isBtn ? colors.gold : STATUS_COLOR[p.status],
+                  borderWidth: isBtn ? 3 : 2,
+                  opacity: p.status === 'descansa' ? 0.5 : 1,
                 },
               ]}>
               <View style={styles.badges}>
@@ -75,14 +100,14 @@ export default function MesaScreen() {
         })}
       </View>
 
-      <Text style={styles.tip}>Toca un asiento para cambiar: Juega → Descansa → Reparte</Text>
+      <Text style={styles.tip}>👆 Toca un asiento para mover el dealer, cambiar estado o editar</Text>
 
       <TouchableOpacity style={styles.nextBtn} onPress={nextHand}>
         <Text style={styles.nextText}>Siguiente mano ▶</Text>
       </TouchableOpacity>
 
       <View style={styles.freqBox}>
-        <Text style={styles.freqTitle}>🔘 Orden de dealer (próximas manos)</Text>
+        <Text style={styles.freqTitle}>🔘 Orden del dealer</Text>
         {order.length === 0 ? (
           <Text style={styles.sub}>No hay jugadores activos.</Text>
         ) : (
@@ -94,6 +119,85 @@ export default function MesaScreen() {
           ))
         )}
       </View>
+
+      {/* Menú de edición del asiento */}
+      <Modal visible={!!selected} transparent animationType="slide" onRequestClose={close}>
+        <View style={styles.modalBg}>
+          <View style={styles.modalCard}>
+            {selected && (
+              <>
+                <Text style={styles.modalTitle}>Asiento {selected.seat}</Text>
+
+                <TextInput
+                  style={styles.nameInput}
+                  value={editName}
+                  onChangeText={setEditName}
+                  placeholder="Nombre"
+                  placeholderTextColor={colors.textDim}
+                  onEndEditing={() => renamePlayer(selected.id, editName)}
+                />
+
+                <TouchableOpacity
+                  style={styles.dealerBtn}
+                  onPress={() => {
+                    setButton(selected.seat);
+                    close();
+                  }}>
+                  <Text style={styles.dealerBtnText}>🔘 Poner el botón de DEALER aquí</Text>
+                </TouchableOpacity>
+
+                <Text style={styles.modalLabel}>Estado en la mano</Text>
+                <View style={styles.statusRow}>
+                  {STATUSES.map(st => {
+                    const active = selected.status === st;
+                    return (
+                      <TouchableOpacity
+                        key={st}
+                        style={[
+                          styles.statusBtn,
+                          active && { backgroundColor: STATUS_COLOR[st], borderColor: STATUS_COLOR[st] },
+                        ]}
+                        onPress={() => setStatus(selected.id, st)}>
+                        <Text style={[styles.statusBtnText, active && { color: '#06301E' }]}>
+                          {STATUS_LABEL[st]}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <View style={styles.modalBtns}>
+                  <TouchableOpacity
+                    style={styles.removeBtn}
+                    onPress={() =>
+                      Alert.alert('Quitar jugador', `¿Quitar a ${selected.name} de la mesa?`, [
+                        { text: 'Cancelar', style: 'cancel' },
+                        {
+                          text: 'Quitar',
+                          style: 'destructive',
+                          onPress: () => {
+                            removePlayer(selected.id);
+                            close();
+                          },
+                        },
+                      ])
+                    }>
+                    <Text style={styles.removeText}>🗑️ Quitar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.doneBtn}
+                    onPress={() => {
+                      renamePlayer(selected.id, editName);
+                      close();
+                    }}>
+                    <Text style={styles.doneText}>Listo</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -106,9 +210,23 @@ function Badge({ text, bg, fg }: { text: string; bg: string; fg: string }) {
   );
 }
 
+function Pos({ label, name, c }: { label: string; name: string; c: string }) {
+  return (
+    <View style={styles.posItem}>
+      <Text style={[styles.posLabel, { color: c }]}>{label}</Text>
+      <Text style={styles.posName} numberOfLines={1}>
+        {name}
+      </Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg, padding: 14 },
-  handLabel: { color: colors.textDim, fontWeight: '700', fontSize: 15, marginBottom: 6 },
+  posBar: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  posItem: { flex: 1, backgroundColor: colors.card, borderRadius: 12, padding: 10, alignItems: 'center' },
+  posLabel: { fontSize: 12, fontWeight: '800' },
+  posName: { color: colors.text, fontSize: 15, fontWeight: '700', marginTop: 2 },
   table: {
     height: 360,
     backgroundColor: colors.felt,
@@ -125,7 +243,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     width: 90,
   },
-  centerText: { color: '#CDEBDD', fontSize: 12, letterSpacing: 1 },
+  centerText: { color: '#CDEBDD', fontSize: 13, letterSpacing: 1 },
   centerBlinds: { color: '#fff', fontSize: 24, fontWeight: '900' },
   seat: {
     position: 'absolute',
@@ -133,7 +251,6 @@ const styles = StyleSheet.create({
     height: 74,
     borderRadius: 14,
     backgroundColor: colors.card,
-    borderWidth: 2.5,
     transform: [{ translateX: -37 }, { translateY: -37 }],
     alignItems: 'center',
     justifyContent: 'center',
@@ -160,13 +277,61 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   nextText: { color: '#3A2D00', fontSize: 18, fontWeight: '900' },
-  freqBox: {
-    backgroundColor: colors.card,
-    borderRadius: 12,
-    padding: 14,
-    marginTop: 14,
-  },
+  freqBox: { backgroundColor: colors.card, borderRadius: 12, padding: 14, marginTop: 14 },
   freqTitle: { color: colors.text, fontWeight: '800', marginBottom: 8 },
   freqLine: { color: colors.text, fontSize: 14, paddingVertical: 2 },
   sub: { color: colors.textDim, fontSize: 13 },
+  // modal
+  modalBg: { flex: 1, backgroundColor: '#000A', justifyContent: 'flex-end' },
+  modalCard: {
+    backgroundColor: colors.bg,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    padding: 18,
+    borderTopWidth: 1,
+    borderColor: colors.border,
+  },
+  modalTitle: { color: colors.text, fontSize: 20, fontWeight: '900', marginBottom: 12 },
+  nameInput: {
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: colors.text,
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: 14,
+  },
+  dealerBtn: {
+    backgroundColor: colors.gold,
+    borderRadius: 12,
+    padding: 15,
+    alignItems: 'center',
+  },
+  dealerBtnText: { color: '#3A2D00', fontSize: 16, fontWeight: '900' },
+  modalLabel: { color: colors.textDim, fontWeight: '700', marginTop: 16, marginBottom: 8 },
+  statusRow: { flexDirection: 'row', gap: 8 },
+  statusBtn: {
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+  },
+  statusBtnText: { color: colors.text, fontWeight: '800', fontSize: 13 },
+  modalBtns: { flexDirection: 'row', gap: 10, marginTop: 18 },
+  removeBtn: {
+    flex: 1,
+    borderRadius: 12,
+    padding: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.red,
+  },
+  removeText: { color: colors.red, fontWeight: '800' },
+  doneBtn: { flex: 2, backgroundColor: colors.green, borderRadius: 12, padding: 14, alignItems: 'center' },
+  doneText: { color: '#06301E', fontWeight: '900', fontSize: 16 },
 });
