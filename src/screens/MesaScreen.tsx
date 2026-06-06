@@ -25,9 +25,11 @@ const STATUS_LABEL: Record<SeatStatus, string> = {
   solo_reparte: 'Reparte',
 };
 const STATUSES: SeatStatus[] = ['juega', 'descansa', 'solo_reparte'];
+const SEATS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 
 export default function MesaScreen() {
-  const { state, nextHand, setButton, setStatus, renamePlayer, removePlayer } = useSession();
+  const { state, nextHand, setButton, setStatus, renamePlayer, removePlayer, moveSeat, addPlayer } =
+    useSession();
   const { players } = state;
   const pos = positions(state);
   const order = dealerOrder(state);
@@ -35,6 +37,7 @@ export default function MesaScreen() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
+  const [newName, setNewName] = useState('');
   const selected = players.find(p => p.id === selectedId) ?? null;
 
   const open = (id: string, name: string) => {
@@ -42,6 +45,11 @@ export default function MesaScreen() {
     setEditName(name);
   };
   const close = () => setSelectedId(null);
+
+  const add = () => {
+    addPlayer(newName);
+    setNewName('');
+  };
 
   const N = players.length;
   const RX = 40;
@@ -89,6 +97,7 @@ export default function MesaScreen() {
                 {isSb && <Badge text="1" bg={colors.blue} fg="#fff" />}
                 {isBb && <Badge text="2" bg={colors.red} fg="#fff" />}
               </View>
+              <Text style={styles.seatSeat}>#{p.seat}</Text>
               <Text style={styles.seatName} numberOfLines={1}>
                 {p.name}
               </Text>
@@ -100,11 +109,28 @@ export default function MesaScreen() {
         })}
       </View>
 
-      <Text style={styles.tip}>👆 Toca un asiento para mover el dealer, cambiar estado o editar</Text>
+      <Text style={styles.tip}>👆 Toca un asiento para mover dealer, cambiar de silla, estado o nombre</Text>
 
       <TouchableOpacity style={styles.nextBtn} onPress={nextHand}>
         <Text style={styles.nextText}>Siguiente mano ▶</Text>
       </TouchableOpacity>
+
+      {/* Añadir jugador */}
+      {players.length < 9 && (
+        <View style={styles.addRow}>
+          <TextInput
+            style={styles.addInput}
+            placeholder="Nombre del nuevo jugador…"
+            placeholderTextColor={colors.textDim}
+            value={newName}
+            onChangeText={setNewName}
+            onSubmitEditing={add}
+          />
+          <TouchableOpacity style={styles.addBtn} onPress={add}>
+            <Text style={styles.addBtnText}>➕ Añadir</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       <View style={styles.freqBox}>
         <Text style={styles.freqTitle}>🔘 Orden del dealer</Text>
@@ -125,8 +151,8 @@ export default function MesaScreen() {
         <View style={styles.modalBg}>
           <View style={styles.modalCard}>
             {selected && (
-              <>
-                <Text style={styles.modalTitle}>Asiento {selected.seat}</Text>
+              <ScrollView>
+                <Text style={styles.modalTitle}>Jugador en silla #{selected.seat}</Text>
 
                 <TextInput
                   style={styles.nameInput}
@@ -136,6 +162,27 @@ export default function MesaScreen() {
                   placeholderTextColor={colors.textDim}
                   onEndEditing={() => renamePlayer(selected.id, editName)}
                 />
+
+                <Text style={styles.modalLabel}>Cambiar de silla (toca el número)</Text>
+                <View style={styles.seatGrid}>
+                  {SEATS.map(n => {
+                    const mine = selected.seat === n;
+                    const other = players.find(p => p.seat === n && p.id !== selected.id);
+                    return (
+                      <TouchableOpacity
+                        key={n}
+                        style={[
+                          styles.seatChip,
+                          mine && { backgroundColor: colors.gold, borderColor: colors.gold },
+                          other && { borderColor: colors.blue },
+                        ]}
+                        onPress={() => moveSeat(selected.id, n)}>
+                        <Text style={[styles.seatChipText, mine && { color: '#3A2D00' }]}>{n}</Text>
+                        {other && <Text style={styles.seatChipMini} numberOfLines={1}>{other.name}</Text>}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
 
                 <TouchableOpacity
                   style={styles.dealerBtn}
@@ -149,16 +196,16 @@ export default function MesaScreen() {
                 <Text style={styles.modalLabel}>Estado en la mano</Text>
                 <View style={styles.statusRow}>
                   {STATUSES.map(st => {
-                    const active = selected.status === st;
+                    const activeSt = selected.status === st;
                     return (
                       <TouchableOpacity
                         key={st}
                         style={[
                           styles.statusBtn,
-                          active && { backgroundColor: STATUS_COLOR[st], borderColor: STATUS_COLOR[st] },
+                          activeSt && { backgroundColor: STATUS_COLOR[st], borderColor: STATUS_COLOR[st] },
                         ]}
                         onPress={() => setStatus(selected.id, st)}>
-                        <Text style={[styles.statusBtnText, active && { color: '#06301E' }]}>
+                        <Text style={[styles.statusBtnText, activeSt && { color: '#06301E' }]}>
                           {STATUS_LABEL[st]}
                         </Text>
                       </TouchableOpacity>
@@ -193,7 +240,7 @@ export default function MesaScreen() {
                     <Text style={styles.doneText}>Listo</Text>
                   </TouchableOpacity>
                 </View>
-              </>
+              </ScrollView>
             )}
           </View>
         </View>
@@ -247,25 +294,26 @@ const styles = StyleSheet.create({
   centerBlinds: { color: '#fff', fontSize: 24, fontWeight: '900' },
   seat: {
     position: 'absolute',
-    width: 74,
-    height: 74,
+    width: 76,
+    height: 76,
     borderRadius: 14,
     backgroundColor: colors.card,
-    transform: [{ translateX: -37 }, { translateY: -37 }],
+    transform: [{ translateX: -38 }, { translateY: -38 }],
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 4,
   },
-  badges: { flexDirection: 'row', gap: 2, height: 16, marginBottom: 1 },
+  badges: { flexDirection: 'row', gap: 2, height: 15 },
   badge: {
-    minWidth: 16,
-    height: 16,
+    minWidth: 15,
+    height: 15,
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 3,
   },
-  badgeText: { fontSize: 11, fontWeight: '900' },
+  badgeText: { fontSize: 10, fontWeight: '900' },
+  seatSeat: { color: colors.textDim, fontSize: 9, fontWeight: '700' },
   seatName: { color: colors.text, fontSize: 13, fontWeight: '800' },
   seatStatus: { fontSize: 10, fontWeight: '700' },
   tip: { color: colors.textDim, fontSize: 12, textAlign: 'center', marginTop: 4 },
@@ -277,6 +325,18 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   nextText: { color: '#3A2D00', fontSize: 18, fontWeight: '900' },
+  addRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  addInput: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    color: colors.text,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  addBtn: { backgroundColor: colors.cardLight, borderRadius: 12, paddingHorizontal: 16, justifyContent: 'center' },
+  addBtnText: { color: colors.text, fontWeight: '800' },
   freqBox: { backgroundColor: colors.card, borderRadius: 12, padding: 14, marginTop: 14 },
   freqTitle: { color: colors.text, fontWeight: '800', marginBottom: 8 },
   freqLine: { color: colors.text, fontSize: 14, paddingVertical: 2 },
@@ -288,6 +348,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 22,
     borderTopRightRadius: 22,
     padding: 18,
+    maxHeight: '85%',
     borderTopWidth: 1,
     borderColor: colors.border,
   },
@@ -301,16 +362,23 @@ const styles = StyleSheet.create({
     fontSize: 16,
     borderWidth: 1,
     borderColor: colors.border,
-    marginBottom: 14,
   },
-  dealerBtn: {
-    backgroundColor: colors.gold,
-    borderRadius: 12,
-    padding: 15,
-    alignItems: 'center',
-  },
-  dealerBtnText: { color: '#3A2D00', fontSize: 16, fontWeight: '900' },
   modalLabel: { color: colors.textDim, fontWeight: '700', marginTop: 16, marginBottom: 8 },
+  seatGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  seatChip: {
+    width: 58,
+    height: 50,
+    borderRadius: 10,
+    backgroundColor: colors.card,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  seatChipText: { color: colors.text, fontWeight: '900', fontSize: 16 },
+  seatChipMini: { color: colors.textDim, fontSize: 9 },
+  dealerBtn: { backgroundColor: colors.gold, borderRadius: 12, padding: 15, alignItems: 'center', marginTop: 16 },
+  dealerBtnText: { color: '#3A2D00', fontSize: 16, fontWeight: '900' },
   statusRow: { flexDirection: 'row', gap: 8 },
   statusBtn: {
     flex: 1,
@@ -322,7 +390,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
   },
   statusBtnText: { color: colors.text, fontWeight: '800', fontSize: 13 },
-  modalBtns: { flexDirection: 'row', gap: 10, marginTop: 18 },
+  modalBtns: { flexDirection: 'row', gap: 10, marginTop: 18, marginBottom: 6 },
   removeBtn: {
     flex: 1,
     borderRadius: 12,

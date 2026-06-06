@@ -37,6 +37,7 @@ interface Ctx {
   cycleStatus: (id: string) => void;
   setStatus: (id: string, status: SeatStatus) => void;
   setButton: (seat: number) => void;
+  moveSeat: (id: string, newSeat: number) => void;
   addBuyin: (id: string) => void;
   removeBuyin: (id: string) => void;
   setCashout: (id: string, chips: number | null) => void;
@@ -125,6 +126,23 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setState(s => ({ ...s, buttonSeat: seat }));
   }, []);
 
+  // Cambiar a un jugador de silla. Si la silla está ocupada, intercambia.
+  const moveSeat = useCallback((id: string, newSeat: number) => {
+    setState(s => {
+      const me = s.players.find(p => p.id === id);
+      if (!me || me.seat === newSeat) return s;
+      const occupant = s.players.find(p => p.seat === newSeat);
+      const players = s.players
+        .map(p => {
+          if (p.id === id) return { ...p, seat: newSeat };
+          if (occupant && p.id === occupant.id) return { ...p, seat: me.seat };
+          return p;
+        })
+        .sort((a, b) => a.seat - b.seat);
+      return { ...s, players };
+    });
+  }, []);
+
   const addBuyin = useCallback((id: string) => {
     setState(s => ({
       ...s,
@@ -194,6 +212,7 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       cycleStatus,
       setStatus,
       setButton,
+      moveSeat,
       addBuyin,
       removeBuyin,
       setCashout,
@@ -212,6 +231,7 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       cycleStatus,
       setStatus,
       setButton,
+      moveSeat,
       addBuyin,
       removeBuyin,
       setCashout,
