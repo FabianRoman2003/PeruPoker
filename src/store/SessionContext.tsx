@@ -9,7 +9,7 @@ import React, {
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { OnlineState, Player, SeatStatus, SessionState } from '../types';
-import { actionOrder, advanceButton, preflopStart } from '../logic/poker';
+import { actionOrder, advanceButton, inHandSeats, preflopStart } from '../logic/poker';
 import { supabase } from '../lib/supabase';
 import { getCurrentUser } from '../lib/auth';
 
@@ -32,13 +32,44 @@ const initialState = (): SessionState => ({
   timerBase: 30,
 });
 
-// Segundos restantes calculados (cada celular lo calcula solo)
 export function computeRemaining(s: SessionState, now: number): number {
   if (s.timerRunning && s.turnStartedAt) {
     return Math.max(0, s.timerBase - Math.floor((now - s.turnStartedAt) / 1000));
   }
   return s.timerBase;
 }
+
+// ---- helpers puros del flujo de la mano ----
+const startTurnClock = (s: SessionState): SessionState => ({
+  ...s,
+  timerBase: s.shotClockSeconds,
+  turnStartedAt: Date.now(),
+  timerRunning: true,
+});
+
+const clearFolds = (players: Player[]): Player[] =>
+  players.map(p => ({ ...p, folded: false, lastAction: null }));
+
+const newHand = (s: SessionState): SessionState => {
+  const button = advanceButton(s);
+  const nh = { ...s, buttonSeat: button, street: 0, players: clearFolds(s.players) };
+  return startTurnClock({ ...nh, actingSeat: preflopStart(nh), handNumber: s.handNumber + 1 });
+};
+
+// Avanza al siguiente que debe hablar (o de calle, o de mano)
+const advanceTurn = (s: SessionState): SessionState => {
+  const order = actionOrder(s, s.street);
+  if (order.length === 0) return s;
+  const i = s.actingSeat == null ? -1 : order.indexOf(s.actingSeat);
+  if (i < 0) return startTurnClock({ ...s, actingSeat: order[0] });
+  if (i < order.length - 1) return startTurnClock({ ...s, actingSeat: order[i + 1] });
+  if (s.street < 3) {
+    const ns = { ...s, street: s.street + 1 };
+    const norder = actionOrder(ns, ns.street);
+    return startTurnClock({ ...ns, actingSeat: norder[0] ?? null });
+  }
+  return newHand(s);
+};
 
 interface Ctx {
   state: SessionState;
@@ -57,6 +88,8 @@ interface Ctx {
   nextHand: () => void;
   nextTurn: () => void;
   prevTurn: () => void;
+  apuesta: () => void;
+  fold: () => void;
   startTimer: () => void;
   pauseTimer: () => void;
   resetTimer: () => void;
@@ -69,7 +102,6 @@ interface Ctx {
 }
 
 const SessionCtx = createContext<Ctx | null>(null);
-
 const STATUS_CYCLE: SeatStatus[] = ['juega', 'descansa', 'solo_reparte'];
 
 export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -84,7 +116,6 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const pushRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Cargar sesión local guardada
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY).then(raw => {
       if (raw) {
@@ -96,7 +127,6 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
   }, []);
 
-  // Guardar local + (si es host) publicar a la sala con debounce
   useEffect(() => {
     if (!ready) return;
     AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -104,16 +134,11 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (pushRef.current) clearTimeout(pushRef.current);
       const code = codeRef.current;
       pushRef.current = setTimeout(() => {
-        supabase
-          .from('rooms')
-          .update({ state, updated_at: new Date().toISOString() })
-          .eq('code', code)
-          .then(() => {});
+        supabase.from('rooms').update({ state, updated_at: new Date().toISOString() }).eq('code', code).then(() => {});
       }, 350);
     }
   }, [state, ready]);
 
-  // Solo el host (o modo local) puede modificar; el espectador es solo-lectura
   const setGuarded: typeof setState = updater => {
     if (roleRef.current === 'viewer') return;
     setState(updater as any);
@@ -132,6 +157,8 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
         status: 'juega',
         buyins: 1,
         cashout: null,
+        folded: false,
+        lastAction: null,
       };
       const players = [...s.players, player].sort((a, b) => a.seat - b.seat);
       const buttonSeat = s.buttonSeat ?? seat;
@@ -207,37 +234,12 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setGuarded(s => ({ ...s, players: s.players.map(p => ({ ...p, cashout: null })) }));
   }, []);
 
-  const startTurnClock = (s: SessionState): SessionState => ({
-    ...s,
-    timerBase: s.shotClockSeconds,
-    turnStartedAt: Date.now(),
-    timerRunning: true,
-  });
-
   const nextHand = useCallback(() => {
-    setGuarded(s => {
-      const button = advanceButton(s);
-      const ns = { ...s, buttonSeat: button, street: 0 };
-      return startTurnClock({ ...ns, actingSeat: preflopStart(ns), handNumber: s.handNumber + 1 });
-    });
+    setGuarded(s => newHand(s));
   }, []);
 
   const nextTurn = useCallback(() => {
-    setGuarded(s => {
-      const order = actionOrder(s, s.street);
-      if (order.length === 0) return s;
-      const i = s.actingSeat == null ? -1 : order.indexOf(s.actingSeat);
-      if (i < 0) return startTurnClock({ ...s, actingSeat: order[0] });
-      if (i < order.length - 1) return startTurnClock({ ...s, actingSeat: order[i + 1] });
-      if (s.street < 3) {
-        const ns = { ...s, street: s.street + 1 };
-        const norder = actionOrder(ns, ns.street);
-        return startTurnClock({ ...ns, actingSeat: norder[0] ?? null });
-      }
-      const button = advanceButton(s);
-      const nh = { ...s, buttonSeat: button, street: 0 };
-      return startTurnClock({ ...nh, actingSeat: preflopStart(nh), handNumber: s.handNumber + 1 });
-    });
+    setGuarded(s => advanceTurn(s));
   }, []);
 
   const prevTurn = useCallback(() => {
@@ -255,22 +257,47 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
   }, []);
 
+  // Apostó / pasó: marca la decisión y pasa al siguiente
+  const apuesta = useCallback(() => {
+    setGuarded(s => {
+      if (s.actingSeat == null) return advanceTurn(s);
+      const players = s.players.map(p =>
+        p.seat === s.actingSeat ? { ...p, lastAction: 'apuesta' as const } : p,
+      );
+      return advanceTurn({ ...s, players });
+    });
+  }, []);
+
+  // Fold: descarta al jugador de la mano y pasa al siguiente
+  const fold = useCallback(() => {
+    setGuarded(s => {
+      if (s.actingSeat == null) return s;
+      const order = actionOrder(s, s.street); // incluye aún al que se retira
+      const i = order.indexOf(s.actingSeat);
+      const players = s.players.map(p =>
+        p.seat === s.actingSeat ? { ...p, folded: true, lastAction: 'fold' as const } : p,
+      );
+      const s2 = { ...s, players };
+      // ¿queda solo 1 en la mano? -> nueva mano
+      if (inHandSeats(players).length <= 1) return newHand(s2);
+      // siguiente en el orden actual (el que se retiró estaba en i)
+      if (i >= 0 && i < order.length - 1) return startTurnClock({ ...s2, actingSeat: order[i + 1] });
+      // estaba al final de la calle -> avanza de calle/mano sobre s2
+      if (s2.street < 3) {
+        const ns = { ...s2, street: s2.street + 1 };
+        const norder = actionOrder(ns, ns.street);
+        return startTurnClock({ ...ns, actingSeat: norder[0] ?? null });
+      }
+      return newHand(s2);
+    });
+  }, []);
+
   const startTimer = useCallback(() => {
-    setGuarded(s => ({
-      ...s,
-      timerBase: computeRemaining(s, Date.now()),
-      turnStartedAt: Date.now(),
-      timerRunning: true,
-    }));
+    setGuarded(s => ({ ...s, timerBase: computeRemaining(s, Date.now()), turnStartedAt: Date.now(), timerRunning: true }));
   }, []);
 
   const pauseTimer = useCallback(() => {
-    setGuarded(s => ({
-      ...s,
-      timerBase: computeRemaining(s, Date.now()),
-      turnStartedAt: null,
-      timerRunning: false,
-    }));
+    setGuarded(s => ({ ...s, timerBase: computeRemaining(s, Date.now()), turnStartedAt: null, timerRunning: false }));
   }, []);
 
   const resetTimer = useCallback(() => {
@@ -296,7 +323,7 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }));
   }, []);
 
-  // ====== Salas en vivo (Realtime) ======
+  // ====== Salas en vivo ======
   const createRoom = useCallback(async (): Promise<string | null> => {
     const code = 'MESA-' + Math.floor(1000 + Math.random() * 9000);
     const hostName = (await getCurrentUser()) ?? 'host';
@@ -369,6 +396,8 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       nextHand,
       nextTurn,
       prevTurn,
+      apuesta,
+      fold,
       startTimer,
       pauseTimer,
       resetTimer,
@@ -396,6 +425,8 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       nextHand,
       nextTurn,
       prevTurn,
+      apuesta,
+      fold,
       startTimer,
       pauseTimer,
       resetTimer,

@@ -44,6 +44,8 @@ export default function MesaScreen() {
     nextHand,
     nextTurn,
     prevTurn,
+    apuesta,
+    fold,
     startTimer,
     pauseTimer,
     resetTimer,
@@ -165,7 +167,7 @@ export default function MesaScreen() {
                     top: `${y}%`,
                     borderColor: isActing ? colors.gold : isBtn ? colors.gold : STATUS_COLOR[p.status],
                     borderWidth: isActing ? 4 : isBtn ? 3 : 2,
-                    opacity: p.status === 'descansa' ? 0.5 : 1,
+                    opacity: p.status === 'descansa' || p.folded ? 0.45 : 1,
                   },
                   isActing && styles.seatActing,
                 ]}>
@@ -177,8 +179,20 @@ export default function MesaScreen() {
                 <Text style={styles.seatName} numberOfLines={1}>
                   {p.name}
                 </Text>
-                <Text style={[styles.seatStatus, { color: isActing ? colors.gold : STATUS_COLOR[p.status] }]}>
-                  {isActing ? '▶ habla' : STATUS_LABEL[p.status]}
+                <Text
+                  style={[
+                    styles.seatStatus,
+                    {
+                      color: isActing
+                        ? colors.gold
+                        : p.folded
+                        ? colors.red
+                        : p.lastAction === 'apuesta'
+                        ? colors.green
+                        : STATUS_COLOR[p.status],
+                    },
+                  ]}>
+                  {isActing ? '▶ habla' : p.folded ? 'Fold' : p.lastAction === 'apuesta' ? 'Apostó' : STATUS_LABEL[p.status]}
                 </Text>
               </TouchableOpacity>
             );
@@ -192,9 +206,9 @@ export default function MesaScreen() {
             {actingName}
           </Text>
 
-          <TouchableOpacity activeOpacity={viewer ? 1 : 0.8} onPress={() => !viewer && nextTurn()} style={styles.numberWrap}>
+          <TouchableOpacity activeOpacity={viewer ? 1 : 0.8} onPress={() => !viewer && apuesta()} style={styles.numberWrap}>
             <Text style={[styles.bigNumber, { color: danger ? colors.red : '#fff' }]}>{remaining}</Text>
-            <Text style={styles.numberHint}>{viewer ? 'en vivo' : 'toca el número para pasar de turno'}</Text>
+            <Text style={styles.numberHint}>{viewer ? 'en vivo' : 'toca el número = Apostó y pasa'}</Text>
           </TouchableOpacity>
 
           <Text style={styles.sigue}>
@@ -204,13 +218,16 @@ export default function MesaScreen() {
           {!viewer && (
             <>
               <View style={styles.turnRow}>
-                <TouchableOpacity style={styles.turnBtn} onPress={prevTurn}>
-                  <Text style={styles.turnBtnText}>◀ Anterior</Text>
+                <TouchableOpacity style={[styles.turnBtn, styles.foldBtn]} onPress={fold}>
+                  <Text style={[styles.turnBtnText, { color: '#fff' }]}>❌ Fold</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.turnBtn, styles.turnNext]} onPress={nextTurn}>
-                  <Text style={[styles.turnBtnText, { color: '#3A2D00' }]}>Siguiente ▶</Text>
+                <TouchableOpacity style={[styles.turnBtn, styles.betBtn]} onPress={apuesta}>
+                  <Text style={[styles.turnBtnText, { color: '#06301E' }]}>✅ Apostó</Text>
                 </TouchableOpacity>
               </View>
+              <TouchableOpacity style={styles.undoBtn} onPress={prevTurn}>
+                <Text style={styles.undoText}>◀ Turno anterior</Text>
+              </TouchableOpacity>
 
               <View style={styles.row3}>
                 <TouchableOpacity
@@ -490,6 +507,10 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   turnNext: { backgroundColor: colors.gold, borderColor: colors.gold },
+  foldBtn: { backgroundColor: colors.red, borderColor: colors.red },
+  betBtn: { backgroundColor: colors.green, borderColor: colors.green },
+  undoBtn: { alignSelf: 'center', paddingVertical: 8, marginTop: 8 },
+  undoText: { color: colors.textDim, fontWeight: '700', fontSize: 13 },
   turnBtnText: { color: colors.text, fontSize: 16, fontWeight: '900' },
   row3: { flexDirection: 'row', gap: 10, marginTop: 10, alignSelf: 'stretch' },
   ctrl: {

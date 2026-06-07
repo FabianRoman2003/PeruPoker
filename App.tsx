@@ -11,6 +11,7 @@ import { AuthProvider, useAuth } from './src/store/AuthContext';
 import AuthScreen from './src/screens/AuthScreen';
 import CajaScreen from './src/screens/CajaScreen';
 import MesaScreen from './src/screens/MesaScreen';
+import TimerScreen from './src/screens/TimerScreen';
 
 enableScreens();
 const Tab = createBottomTabNavigator();
@@ -78,6 +79,11 @@ function MainTabs() {
             name="Mesa"
             component={MesaScreen}
             options={{ title: '🎲 Mesa y Reloj', tabBarLabel: 'Mesa', tabBarIcon: icon('🎲') }}
+          />
+          <Tab.Screen
+            name="Reloj"
+            component={TimerScreen}
+            options={{ title: '⏱️ Cronómetro', tabBarLabel: 'Reloj', tabBarIcon: icon('⏱️') }}
           />
         </Tab.Navigator>
       </NavigationContainer>

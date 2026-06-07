@@ -8,6 +8,8 @@ export interface Player {
   status: SeatStatus;
   buyins: number; // cantidad de cajas compradas (cada caja = boxValue)
   cashout: number | null; // fichas finales en Bs (al cerrar la mesa)
+  folded?: boolean; // se retiró en la mano actual (se reinicia cada mano)
+  lastAction?: 'apuesta' | 'fold' | null; // decisión de la mano actual
 }
 
 export interface BuyinEvent {

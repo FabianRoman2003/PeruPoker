@@ -88,13 +88,22 @@ export function postflopStart(state: SessionState): number | null {
   return nextActiveSeat(p.button, active);
 }
 
-// Orden de acción de la calle (lista circular de asientos que juegan)
+// Asientos que siguen EN LA MANO (juegan y no se retiraron)
+export function inHandSeats(players: Player[]): number[] {
+  return players
+    .filter(p => p.status === 'juega' && !p.folded)
+    .map(p => p.seat)
+    .sort((a, b) => a - b);
+}
+
+// Orden de acción de la calle (solo los que siguen en la mano; arranca en la posición correcta)
 export function actionOrder(state: SessionState, street: number): number[] {
-  const active = activeSeats(state.players);
-  if (active.length === 0) return [];
+  const inHand = inHandSeats(state.players);
+  if (inHand.length === 0) return [];
   const start = street === 0 ? preflopStart(state) : postflopStart(state);
-  if (start == null) return active;
-  const i = active.indexOf(start);
-  if (i < 0) return active;
-  return [...active.slice(i), ...active.slice(0, i)];
+  if (start == null) return inHand;
+  const ge = inHand.filter(s => s >= start);
+  const startSeat = ge.length ? ge[0] : inHand[0];
+  const i = inHand.indexOf(startSeat);
+  return [...inHand.slice(i), ...inHand.slice(0, i)];
 }
