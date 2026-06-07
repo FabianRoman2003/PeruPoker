@@ -2,10 +2,10 @@ import 'react-native-url-polyfill/auto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
 
-// 👇 Pega aquí los datos de tu proyecto Supabase (Settings → API)
-//    Mientras estén en blanco, la app funciona 100% offline (estado local).
-export const SUPABASE_URL = 'https://TU-PROYECTO.supabase.co';
-export const SUPABASE_ANON_KEY = 'TU_ANON_KEY';
+// Proyecto Supabase de PeruPoker. La clave publishable es PÚBLICA (segura en el cliente).
+// NUNCA poner aquí la clave secreta (sb_secret_...).
+export const SUPABASE_URL = 'https://rfxvzbeolephwcckexaa.supabase.co';
+export const SUPABASE_ANON_KEY = 'sb_publishable_ytvlTPteaSEVRvbFf1vp1A_CTRMJvjJ';
 
 export const supabaseConfigurado =
   !SUPABASE_URL.includes('TU-PROYECTO') && !SUPABASE_ANON_KEY.includes('TU_ANON_KEY');
