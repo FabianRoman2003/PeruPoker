@@ -1,55 +1,52 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase } from './supabase';
 
-const USERS_KEY = '@perupoker_users';
 const CURRENT_KEY = '@perupoker_current_user';
-
-export interface User {
-  username: string;
-  passHash: string;
-}
 
 export interface AuthResult {
   ok: boolean;
   error?: string;
 }
 
-// Hash simple (no es seguridad bancaria; suficiente para un login casero local)
-function hash(s: string): string {
-  let h = 5381;
-  for (let i = 0; i < s.length; i++) {
-    h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+function mapError(code: string): string {
+  switch (code) {
+    case 'error:datos':
+      return 'Escribe usuario y contraseña (mín. 3 caracteres)';
+    case 'error:existe':
+      return 'Ese usuario ya existe, elige otro';
+    case 'error:credenciales':
+      return 'Usuario o contraseña incorrectos';
+    default:
+      return 'No se pudo conectar. Revisa tu internet.';
   }
-  return String(h >>> 0);
-}
-
-export async function getUsers(): Promise<User[]> {
-  const raw = await AsyncStorage.getItem(USERS_KEY);
-  return raw ? (JSON.parse(raw) as User[]) : [];
 }
 
 export async function register(username: string, password: string): Promise<AuthResult> {
-  username = username.trim();
-  if (!username || !password) return { ok: false, error: 'Escribe usuario y contraseña' };
-  if (password.length < 3) return { ok: false, error: 'La contraseña es muy corta' };
-  const users = await getUsers();
-  if (users.some(u => u.username.toLowerCase() === username.toLowerCase())) {
-    return { ok: false, error: 'Ese usuario ya existe' };
+  const u = username.trim();
+  if (!u || password.length < 3) {
+    return { ok: false, error: 'Escribe usuario y contraseña (mín. 3 caracteres)' };
   }
-  users.push({ username, passHash: hash(password) });
-  await AsyncStorage.setItem(USERS_KEY, JSON.stringify(users));
-  await AsyncStorage.setItem(CURRENT_KEY, username);
-  return { ok: true };
+  const { data, error } = await supabase.rpc('register_user', { p_username: u, p_password: password });
+  if (error) return { ok: false, error: 'No se pudo conectar. Revisa tu internet.' };
+  if (data === 'ok') {
+    await AsyncStorage.setItem(CURRENT_KEY, u);
+    return { ok: true };
+  }
+  return { ok: false, error: mapError(String(data)) };
 }
 
 export async function login(username: string, password: string): Promise<AuthResult> {
-  username = username.trim();
-  const users = await getUsers();
-  const u = users.find(x => x.username.toLowerCase() === username.toLowerCase());
-  if (!u || u.passHash !== hash(password)) {
-    return { ok: false, error: 'Usuario o contraseña incorrectos' };
+  const u = username.trim();
+  if (!u || !password) {
+    return { ok: false, error: 'Escribe usuario y contraseña' };
   }
-  await AsyncStorage.setItem(CURRENT_KEY, u.username);
-  return { ok: true };
+  const { data, error } = await supabase.rpc('login_user', { p_username: u, p_password: password });
+  if (error) return { ok: false, error: 'No se pudo conectar. Revisa tu internet.' };
+  if (data === 'ok') {
+    await AsyncStorage.setItem(CURRENT_KEY, u);
+    return { ok: true };
+  }
+  return { ok: false, error: mapError(String(data)) };
 }
 
 export async function getCurrentUser(): Promise<string | null> {
