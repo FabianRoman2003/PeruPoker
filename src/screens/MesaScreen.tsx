@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
   Modal,
@@ -7,11 +7,12 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  Vibration,
   View,
 } from 'react-native';
 import { colors } from '../theme/colors';
 import { useSession } from '../store/SessionContext';
-import { dealerOrder, positions } from '../logic/poker';
+import { activeSeats, dealerOrder, nextActiveSeat, positions } from '../logic/poker';
 import { SeatStatus } from '../types';
 
 const STATUS_COLOR: Record<SeatStatus, string> = {
@@ -26,48 +27,121 @@ const STATUS_LABEL: Record<SeatStatus, string> = {
 };
 const STATUSES: SeatStatus[] = ['juega', 'descansa', 'solo_reparte'];
 const SEATS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+const PRESETS = [15, 20, 30, 45, 60];
+
+function buzz(ms: number) {
+  try {
+    Vibration.vibrate(ms);
+  } catch {}
+}
 
 export default function MesaScreen() {
-  const { state, nextHand, setButton, setStatus, renamePlayer, removePlayer, moveSeat, addPlayer } =
-    useSession();
+  const {
+    state,
+    nextHand,
+    setButton,
+    setStatus,
+    renamePlayer,
+    removePlayer,
+    moveSeat,
+    addPlayer,
+    setActingSeat,
+    setShotClock,
+  } = useSession();
   const { players } = state;
   const pos = positions(state);
+  const active = activeSeats(players);
   const order = dealerOrder(state);
   const nameOf = (seat: number | null) => players.find(p => p.seat === seat)?.name ?? '—';
 
+  // ---- Reloj ----
+  const full = state.shotClockSeconds;
+  const [remaining, setRemaining] = useState(full);
+  const [running, setRunning] = useState(false);
+
+  const acting = state.actingSeat ?? pos.utg ?? active[0] ?? null;
+  const actingName = nameOf(acting);
+  const nextSeat = acting != null ? nextActiveSeat(acting, active) : active[0] ?? null;
+  const nextName = nameOf(nextSeat);
+
+  useEffect(() => {
+    if (!running) return;
+    const id = setInterval(() => setRemaining(r => Math.max(0, r - 1)), 1000);
+    return () => clearInterval(id);
+  }, [running]);
+
+  useEffect(() => {
+    if (remaining === 5) buzz(200);
+    if (remaining === 0) {
+      buzz(500);
+      setRunning(false);
+    }
+  }, [remaining]);
+
+  const pasarTurno = () => {
+    if (acting != null) setActingSeat(nextActiveSeat(acting, active));
+    else if (active.length) setActingSeat(active[0]);
+    setRemaining(full);
+    setRunning(true);
+  };
+  const reiniciar = () => {
+    setRemaining(full);
+    setRunning(false);
+  };
+  const setDuration = (secs: number) => {
+    setShotClock(secs);
+    setRemaining(secs);
+    setRunning(false);
+  };
+
+  // ---- Edición de asientos ----
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [newName, setNewName] = useState('');
+  const [customTime, setCustomTime] = useState('');
   const selected = players.find(p => p.id === selectedId) ?? null;
 
-  const open = (id: string, name: string) => {
+  const openSeat = (id: string, name: string) => {
     setSelectedId(id);
     setEditName(name);
   };
   const close = () => setSelectedId(null);
-
   const add = () => {
     addPlayer(newName);
     setNewName('');
+  };
+  const aplicarCustom = () => {
+    const n = parseInt(customTime, 10);
+    if (n && n > 0) {
+      setDuration(Math.min(n, 999));
+      setCustomTime('');
+    }
   };
 
   const N = players.length;
   const RX = 40;
   const RY = 38;
+  const danger = remaining <= 5;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 24 }}>
+    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 28 }}>
+      {/* Posiciones */}
       <View style={styles.posBar}>
         <Pos label="🔘 Dealer" name={nameOf(pos.button)} c={colors.gold} />
         <Pos label="1 Ciega" name={nameOf(pos.sb)} c={colors.blue} />
         <Pos label="2 Ciega" name={nameOf(pos.bb)} c={colors.red} />
       </View>
 
+      {/* MESA con cronómetro al centro y jugador iluminado */}
       <View style={styles.table}>
         <View style={styles.tableCenter}>
-          <Text style={styles.centerText}>Mano #{state.handNumber}</Text>
-          <Text style={styles.centerBlinds}>
-            {state.smallBlind} / {state.bigBlind}
+          <Text style={styles.enAccion}>EN ACCIÓN</Text>
+          <Text style={styles.actingNameBig} numberOfLines={1}>
+            {actingName}
+          </Text>
+          <Text style={[styles.bigCount, { color: danger ? colors.red : '#fff' }]}>{remaining}</Text>
+          <Text style={styles.manoTiny}>
+            Mano #{state.handNumber} · {state.smallBlind}/{state.bigBlind}
           </Text>
         </View>
 
@@ -78,41 +152,91 @@ export default function MesaScreen() {
           const isBtn = pos.button === p.seat;
           const isSb = pos.sb === p.seat;
           const isBb = pos.bb === p.seat;
+          const isActing = acting === p.seat;
           return (
             <TouchableOpacity
               key={p.id}
-              onPress={() => open(p.id, p.name)}
+              onPress={() => openSeat(p.id, p.name)}
               style={[
                 styles.seat,
                 {
                   left: `${x}%`,
                   top: `${y}%`,
-                  borderColor: isBtn ? colors.gold : STATUS_COLOR[p.status],
-                  borderWidth: isBtn ? 3 : 2,
+                  borderColor: isActing ? colors.gold : isBtn ? colors.gold : STATUS_COLOR[p.status],
+                  borderWidth: isActing ? 4 : isBtn ? 3 : 2,
                   opacity: p.status === 'descansa' ? 0.5 : 1,
                 },
+                isActing && styles.seatActing,
               ]}>
               <View style={styles.badges}>
                 {isBtn && <Badge text="D" bg={colors.gold} fg="#3A2D00" />}
                 {isSb && <Badge text="1" bg={colors.blue} fg="#fff" />}
                 {isBb && <Badge text="2" bg={colors.red} fg="#fff" />}
               </View>
-              <Text style={styles.seatSeat}>#{p.seat}</Text>
               <Text style={styles.seatName} numberOfLines={1}>
                 {p.name}
               </Text>
               <Text style={[styles.seatStatus, { color: STATUS_COLOR[p.status] }]}>
-                {STATUS_LABEL[p.status]}
+                {isActing ? `⏱ ${remaining}s` : STATUS_LABEL[p.status]}
               </Text>
             </TouchableOpacity>
           );
         })}
       </View>
 
-      <Text style={styles.tip}>👆 Toca un asiento para mover dealer, cambiar de silla, estado o nombre</Text>
+      <Text style={styles.sigue}>
+        Sigue: <Text style={{ color: colors.gold, fontWeight: '800' }}>{nextName}</Text>
+      </Text>
 
-      <TouchableOpacity style={styles.nextBtn} onPress={nextHand}>
-        <Text style={styles.nextText}>Siguiente mano ▶</Text>
+      {/* Botón gigante de pasar turno */}
+      <TouchableOpacity style={styles.bigBtn} onPress={pasarTurno}>
+        <Text style={styles.bigBtnText}>SIGUIENTE TURNO ▶</Text>
+      </TouchableOpacity>
+
+      <View style={styles.row3}>
+        <TouchableOpacity
+          style={[styles.ctrl, running && styles.ctrlActive]}
+          onPress={() => setRunning(r => !r)}>
+          <Text style={styles.ctrlText}>{running ? '⏸  Pausar' : '▶  Iniciar'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.ctrl} onPress={reiniciar}>
+          <Text style={styles.ctrlText}>↻  Reiniciar</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Tiempo por jugador: presets + personalizado */}
+      <Text style={styles.cfgLabel}>⏱️ Tiempo por jugador</Text>
+      <View style={styles.presets}>
+        {PRESETS.map(s => {
+          const on = full === s;
+          return (
+            <TouchableOpacity
+              key={s}
+              style={[styles.preset, on && styles.presetOn]}
+              onPress={() => setDuration(s)}>
+              <Text style={[styles.presetText, on && { color: '#3A2D00' }]}>{s}s</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+      <View style={styles.customRow}>
+        <TextInput
+          style={styles.customInput}
+          keyboardType="number-pad"
+          placeholder="Personalizado (seg)"
+          placeholderTextColor={colors.textDim}
+          value={customTime}
+          onChangeText={setCustomTime}
+          onSubmitEditing={aplicarCustom}
+        />
+        <TouchableOpacity style={styles.customBtn} onPress={aplicarCustom}>
+          <Text style={styles.customBtnText}>Poner</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Rotar dealer / nueva mano */}
+      <TouchableOpacity style={styles.manoBtn} onPress={nextHand}>
+        <Text style={styles.manoText}>🔄 Nueva mano (rota el dealer)</Text>
       </TouchableOpacity>
 
       {/* Añadir jugador */}
@@ -132,19 +256,9 @@ export default function MesaScreen() {
         </View>
       )}
 
-      <View style={styles.freqBox}>
-        <Text style={styles.freqTitle}>🔘 Orden del dealer</Text>
-        {order.length === 0 ? (
-          <Text style={styles.sub}>No hay jugadores activos.</Text>
-        ) : (
-          order.map((seat, i) => (
-            <Text key={seat} style={styles.freqLine}>
-              {i === 0 ? '👉 Ahora' : `En ${i} mano${i > 1 ? 's' : ''}`}:{' '}
-              <Text style={{ color: colors.gold, fontWeight: '800' }}>{nameOf(seat)}</Text>
-            </Text>
-          ))
-        )}
-      </View>
+      {players.length === 0 && (
+        <Text style={styles.emptyHint}>Añade jugadores para ver la mesa y usar el reloj.</Text>
+      )}
 
       {/* Menú de edición del asiento */}
       <Modal visible={!!selected} transparent animationType="slide" onRequestClose={close}>
@@ -178,7 +292,11 @@ export default function MesaScreen() {
                         ]}
                         onPress={() => moveSeat(selected.id, n)}>
                         <Text style={[styles.seatChipText, mine && { color: '#3A2D00' }]}>{n}</Text>
-                        {other && <Text style={styles.seatChipMini} numberOfLines={1}>{other.name}</Text>}
+                        {other && (
+                          <Text style={styles.seatChipMini} numberOfLines={1}>
+                            {other.name}
+                          </Text>
+                        )}
                       </TouchableOpacity>
                     );
                   })}
@@ -275,9 +393,9 @@ const styles = StyleSheet.create({
   posLabel: { fontSize: 12, fontWeight: '800' },
   posName: { color: colors.text, fontSize: 15, fontWeight: '700', marginTop: 2 },
   table: {
-    height: 360,
+    height: 330,
     backgroundColor: colors.felt,
-    borderRadius: 180,
+    borderRadius: 165,
     borderWidth: 6,
     borderColor: colors.feltDark,
     marginVertical: 6,
@@ -286,22 +404,32 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: '50%',
     top: '50%',
-    transform: [{ translateX: -45 }, { translateY: -28 }],
+    transform: [{ translateX: -80 }, { translateY: -70 }],
     alignItems: 'center',
-    width: 90,
+    width: 160,
   },
-  centerText: { color: '#CDEBDD', fontSize: 13, letterSpacing: 1 },
-  centerBlinds: { color: '#fff', fontSize: 24, fontWeight: '900' },
+  enAccion: { color: '#CDEBDD', fontSize: 12, letterSpacing: 2, fontWeight: '800' },
+  actingNameBig: { color: '#fff', fontSize: 20, fontWeight: '900' },
+  bigCount: { fontSize: 60, fontWeight: '900', lineHeight: 66 },
+  manoTiny: { color: '#CDEBDD', fontSize: 12 },
   seat: {
     position: 'absolute',
-    width: 76,
-    height: 76,
+    width: 72,
+    height: 72,
     borderRadius: 14,
     backgroundColor: colors.card,
-    transform: [{ translateX: -38 }, { translateY: -38 }],
+    transform: [{ translateX: -36 }, { translateY: -36 }],
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 4,
+    paddingHorizontal: 3,
+  },
+  seatActing: {
+    backgroundColor: '#2A2410',
+    shadowColor: colors.gold,
+    shadowOpacity: 0.9,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 16,
   },
   badges: { flexDirection: 'row', gap: 2, height: 15 },
   badge: {
@@ -313,34 +441,86 @@ const styles = StyleSheet.create({
     paddingHorizontal: 3,
   },
   badgeText: { fontSize: 10, fontWeight: '900' },
-  seatSeat: { color: colors.textDim, fontSize: 9, fontWeight: '700' },
   seatName: { color: colors.text, fontSize: 13, fontWeight: '800' },
-  seatStatus: { fontSize: 10, fontWeight: '700' },
-  tip: { color: colors.textDim, fontSize: 12, textAlign: 'center', marginTop: 4 },
-  nextBtn: {
+  seatStatus: { fontSize: 10, fontWeight: '800' },
+  sigue: { color: colors.textDim, fontSize: 15, textAlign: 'center', marginTop: 8 },
+  bigBtn: {
     backgroundColor: colors.gold,
-    borderRadius: 14,
-    padding: 16,
+    borderRadius: 18,
+    paddingVertical: 22,
     alignItems: 'center',
-    marginTop: 12,
+    marginTop: 8,
   },
-  nextText: { color: '#3A2D00', fontSize: 18, fontWeight: '900' },
+  bigBtnText: { color: '#3A2D00', fontSize: 23, fontWeight: '900' },
+  row3: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  ctrl: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderRadius: 14,
+    padding: 15,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  ctrlActive: { borderColor: colors.green },
+  ctrlText: { color: colors.text, fontSize: 15, fontWeight: '800' },
+  cfgLabel: { color: colors.textDim, fontWeight: '700', marginTop: 18, marginBottom: 8 },
+  presets: { flexDirection: 'row', gap: 8 },
+  preset: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: colors.border,
+  },
+  presetOn: { backgroundColor: colors.gold, borderColor: colors.gold },
+  presetText: { color: colors.text, fontWeight: '800', fontSize: 14 },
+  customRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
+  customInput: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: colors.text,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  customBtn: {
+    backgroundColor: colors.cardLight,
+    borderRadius: 12,
+    paddingHorizontal: 20,
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  customBtnText: { color: colors.text, fontWeight: '800' },
+  manoBtn: {
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    padding: 14,
+    alignItems: 'center',
+    marginTop: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  manoText: { color: colors.text, fontWeight: '800' },
   addRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
   addInput: {
     flex: 1,
     backgroundColor: colors.card,
     borderRadius: 12,
     paddingHorizontal: 14,
+    paddingVertical: 12,
     color: colors.text,
     borderWidth: 1,
     borderColor: colors.border,
   },
-  addBtn: { backgroundColor: colors.cardLight, borderRadius: 12, paddingHorizontal: 16, justifyContent: 'center' },
-  addBtnText: { color: colors.text, fontWeight: '800' },
-  freqBox: { backgroundColor: colors.card, borderRadius: 12, padding: 14, marginTop: 14 },
-  freqTitle: { color: colors.text, fontWeight: '800', marginBottom: 8 },
-  freqLine: { color: colors.text, fontSize: 14, paddingVertical: 2 },
-  sub: { color: colors.textDim, fontSize: 13 },
+  addBtn: { backgroundColor: colors.green, borderRadius: 12, paddingHorizontal: 16, justifyContent: 'center' },
+  addBtnText: { color: '#06301E', fontWeight: '900' },
+  emptyHint: { color: colors.textDim, fontSize: 14, textAlign: 'center', marginTop: 16 },
   // modal
   modalBg: { flex: 1, backgroundColor: '#000A', justifyContent: 'flex-end' },
   modalCard: {

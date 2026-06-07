@@ -2,7 +2,7 @@ import React from 'react';
 import { ActivityIndicator, Alert, StatusBar, Text, TouchableOpacity, View } from 'react-native';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { enableScreens } from 'react-native-screens';
 
 import { colors } from './src/theme/colors';
@@ -11,7 +11,6 @@ import { AuthProvider, useAuth } from './src/store/AuthContext';
 import AuthScreen from './src/screens/AuthScreen';
 import CajaScreen from './src/screens/CajaScreen';
 import MesaScreen from './src/screens/MesaScreen';
-import RelojScreen from './src/screens/RelojScreen';
 
 enableScreens();
 const Tab = createBottomTabNavigator();
@@ -47,6 +46,7 @@ function UserButton() {
 }
 
 function MainTabs() {
+  const insets = useSafeAreaInsets();
   return (
     <SessionProvider>
       <NavigationContainer theme={navTheme}>
@@ -58,18 +58,27 @@ function MainTabs() {
             headerRight: () => <UserButton />,
             tabBarActiveTintColor: colors.gold,
             tabBarInactiveTintColor: colors.textDim,
+            // Respeta la barra de navegación de Android (cuadrado/círculo/triángulo)
+            // y el home indicator de iPhone, dejando el contenido por encima.
             tabBarStyle: {
               backgroundColor: colors.card,
               borderTopColor: colors.border,
-              height: 62,
-              paddingBottom: 8,
+              height: 58 + insets.bottom,
+              paddingBottom: insets.bottom + 6,
               paddingTop: 6,
             },
             tabBarLabelStyle: { fontWeight: '700', fontSize: 12 },
           }}>
-          <Tab.Screen name="Caja" component={CajaScreen} options={{ title: '🪙 Caja', tabBarIcon: icon('🪙') }} />
-          <Tab.Screen name="Mesa" component={MesaScreen} options={{ title: '🎲 Mesa', tabBarIcon: icon('🎲') }} />
-          <Tab.Screen name="Reloj" component={RelojScreen} options={{ title: '⏱️ Reloj', tabBarIcon: icon('⏱️') }} />
+          <Tab.Screen
+            name="Caja"
+            component={CajaScreen}
+            options={{ title: '🪙 Caja', tabBarLabel: 'Caja', tabBarIcon: icon('🪙') }}
+          />
+          <Tab.Screen
+            name="Mesa"
+            component={MesaScreen}
+            options={{ title: '🎲 Mesa y Reloj', tabBarLabel: 'Mesa', tabBarIcon: icon('🎲') }}
+          />
         </Tab.Navigator>
       </NavigationContainer>
     </SessionProvider>
