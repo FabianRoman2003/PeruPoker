@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  Alert,
   Modal,
   ScrollView,
   StyleSheet,
@@ -11,9 +12,10 @@ import {
 import { colors } from '../theme/colors';
 import { useSession } from '../store/SessionContext';
 import { mismatch, settle, totalMoney } from '../logic/settlement';
+import { APP_VERSION } from '../version';
 
 export default function CajaScreen() {
-  const { state, addPlayer, addBuyin, removeBuyin } = useSession();
+  const { state, addPlayer, addBuyin, removeBuyin, clearTable } = useSession();
   const { players, boxValue } = state;
   const [newName, setNewName] = useState('');
   const [cierreVisible, setCierreVisible] = useState(false);
@@ -21,15 +23,36 @@ export default function CajaScreen() {
   const cajas = players.reduce((s, p) => s + p.buyins, 0);
   const dinero = totalMoney(players, boxValue);
 
+  const add = () => {
+    addPlayer(newName);
+    setNewName('');
+  };
+
+  const vaciar = () =>
+    Alert.alert('Vaciar mesa', 'Quita a todos los jugadores y reinicia el dinero. ¿Seguro?', [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Vaciar', style: 'destructive', onPress: clearTable },
+    ]);
+
   return (
     <View style={styles.container}>
       <View style={styles.banner}>
         <Text style={styles.bannerLabel}>DINERO EN MESA</Text>
         <Text style={styles.bannerValue}>{dinero} Bs</Text>
-        <Text style={styles.bannerSub}>{cajas} cajas · {boxValue} Bs c/u</Text>
+        <Text style={styles.bannerSub}>
+          {cajas} cajas · {boxValue} Bs c/u
+        </Text>
       </View>
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }}>
+        {players.length === 0 && (
+          <View style={styles.empty}>
+            <Text style={styles.emptyEmoji}>🪑</Text>
+            <Text style={styles.emptyTitle}>Mesa vacía</Text>
+            <Text style={styles.emptyText}>Escribe el nombre de un jugador abajo y toca "Añadir" para empezar.</Text>
+          </View>
+        )}
+
         {players.map(p => (
           <View key={p.id} style={styles.row}>
             <View style={{ flex: 1 }}>
@@ -55,26 +78,26 @@ export default function CajaScreen() {
               placeholderTextColor={colors.textDim}
               value={newName}
               onChangeText={setNewName}
-              onSubmitEditing={() => {
-                addPlayer(newName);
-                setNewName('');
-              }}
+              onSubmitEditing={add}
             />
-            <TouchableOpacity
-              style={styles.addBtn}
-              onPress={() => {
-                addPlayer(newName);
-                setNewName('');
-              }}>
+            <TouchableOpacity style={styles.addBtn} onPress={add}>
               <Text style={styles.addBtnText}>Añadir</Text>
             </TouchableOpacity>
           </View>
+        )}
+
+        {players.length > 0 && (
+          <TouchableOpacity style={styles.vaciarBtn} onPress={vaciar}>
+            <Text style={styles.vaciarText}>🗑️ Vaciar mesa (empezar de cero)</Text>
+          </TouchableOpacity>
         )}
       </ScrollView>
 
       <TouchableOpacity style={styles.cerrarBtn} onPress={() => setCierreVisible(true)}>
         <Text style={styles.cerrarText}>Cerrar mesa y cuadrar 🧮</Text>
       </TouchableOpacity>
+
+      <Text style={styles.version}>PeruPoker {APP_VERSION}</Text>
 
       <CierreModal visible={cierreVisible} onClose={() => setCierreVisible(false)} />
     </View>
@@ -85,7 +108,7 @@ function CierreModal({ visible, onClose }: { visible: boolean; onClose: () => vo
   const { state, setCashout, resetCashouts } = useSession();
   const { players, boxValue } = state;
   const desc = mismatch(players, boxValue);
-  const todosContados = players.every(p => p.cashout != null);
+  const todosContados = players.length > 0 && players.every(p => p.cashout != null);
   const cuadra = todosContados && desc === 0;
   const txs = cuadra ? settle(players, boxValue) : [];
 
@@ -112,7 +135,6 @@ function CierreModal({ visible, onClose }: { visible: boolean; onClose: () => vo
             ))}
           </ScrollView>
 
-          {/* Candado del cuadre */}
           {!todosContados ? (
             <Text style={styles.warn}>Faltan jugadores por contar sus fichas…</Text>
           ) : desc === 0 ? (
@@ -166,6 +188,10 @@ const styles = StyleSheet.create({
   bannerLabel: { color: '#CDEBDD', fontSize: 12, letterSpacing: 2, fontWeight: '700' },
   bannerValue: { color: '#fff', fontSize: 40, fontWeight: '900' },
   bannerSub: { color: '#CDEBDD', fontSize: 13 },
+  empty: { alignItems: 'center', paddingVertical: 30 },
+  emptyEmoji: { fontSize: 44 },
+  emptyTitle: { color: colors.text, fontSize: 18, fontWeight: '800', marginTop: 8 },
+  emptyText: { color: colors.textDim, fontSize: 14, textAlign: 'center', marginTop: 4, paddingHorizontal: 20 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -202,17 +228,20 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     borderRadius: 12,
     paddingHorizontal: 14,
+    paddingVertical: 12,
     color: colors.text,
     borderWidth: 1,
     borderColor: colors.border,
   },
   addBtn: {
-    backgroundColor: colors.cardLight,
+    backgroundColor: colors.green,
     borderRadius: 12,
     paddingHorizontal: 18,
     justifyContent: 'center',
   },
-  addBtnText: { color: colors.text, fontWeight: '700' },
+  addBtnText: { color: '#06301E', fontWeight: '900' },
+  vaciarBtn: { alignItems: 'center', paddingVertical: 14, marginTop: 6 },
+  vaciarText: { color: colors.red, fontWeight: '700' },
   cerrarBtn: {
     backgroundColor: colors.gold,
     borderRadius: 14,
@@ -221,6 +250,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   cerrarText: { color: '#3A2D00', fontSize: 17, fontWeight: '900' },
+  version: { color: colors.textDim, fontSize: 11, textAlign: 'center', marginTop: 8 },
   // modal
   modalBg: { flex: 1, backgroundColor: '#000A', justifyContent: 'flex-end' },
   modalCard: {
@@ -254,12 +284,7 @@ const styles = StyleSheet.create({
   },
   warn: { color: colors.red, fontWeight: '800', marginTop: 12, fontSize: 15 },
   ok: { color: colors.green, fontWeight: '800', marginTop: 12, fontSize: 15 },
-  txBox: {
-    backgroundColor: colors.card,
-    borderRadius: 12,
-    padding: 12,
-    marginTop: 12,
-  },
+  txBox: { backgroundColor: colors.card, borderRadius: 12, padding: 12, marginTop: 12 },
   txTitle: { color: colors.text, fontWeight: '800', marginBottom: 6 },
   txLine: { color: colors.text, fontSize: 15, paddingVertical: 3 },
   modalBtns: { flexDirection: 'row', gap: 10, marginTop: 16 },

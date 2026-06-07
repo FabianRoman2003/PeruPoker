@@ -6,24 +6,14 @@ import { advanceButton, activeSeats, nextActiveSeat, positions } from '../logic/
 const STORAGE_KEY = '@perupoker_session';
 const uid = () => Math.random().toString(36).slice(2, 10);
 
-// Datos de ejemplo para que la base se vea funcionando de una vez
-const seedPlayers = (): Player[] =>
-  ['Jorge', 'Pedro', 'Ana', 'Luis', 'Carlos'].map((name, i) => ({
-    id: uid(),
-    seat: i + 1,
-    name,
-    status: 'juega' as SeatStatus,
-    buyins: 1,
-    cashout: null,
-  }));
-
+// La mesa empieza VACÍA: el crupier añade a los jugadores reales.
 const initialState = (): SessionState => ({
   boxValue: 20,
   smallBlind: 1,
   bigBlind: 2,
   shotClockSeconds: 30,
-  players: seedPlayers(),
-  buttonSeat: 1,
+  players: [],
+  buttonSeat: null,
   actingSeat: null,
   handNumber: 1,
   log: [],
@@ -31,6 +21,7 @@ const initialState = (): SessionState => ({
 
 interface Ctx {
   state: SessionState;
+  ready: boolean;
   addPlayer: (name: string) => void;
   removePlayer: (id: string) => void;
   renamePlayer: (id: string, name: string) => void;
@@ -47,6 +38,7 @@ interface Ctx {
   setShotClock: (v: number) => void;
   resetCashouts: () => void;
   newSession: () => void;
+  clearTable: () => void;
 }
 
 const SessionCtx = createContext<Ctx | null>(null);
@@ -55,7 +47,7 @@ const STATUS_CYCLE: SeatStatus[] = ['juega', 'descansa', 'solo_reparte'];
 
 export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, setState] = useState<SessionState>(initialState);
-  const [loaded, setLoaded] = useState(false);
+  const [ready, setReady] = useState(false);
 
   // Cargar la sesión guardada al abrir la app
   useEffect(() => {
@@ -65,14 +57,14 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
           setState(JSON.parse(raw));
         } catch {}
       }
-      setLoaded(true);
+      setReady(true);
     });
   }, []);
 
   // Guardar automáticamente en cada cambio (después de cargar)
   useEffect(() => {
-    if (loaded) AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state, loaded]);
+    if (ready) AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }, [state, ready]);
 
   const addPlayer = useCallback((name: string) => {
     setState(s => {
@@ -88,7 +80,9 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
         buyins: 1,
         cashout: null,
       };
-      return { ...s, players: [...s.players, player].sort((a, b) => a.seat - b.seat) };
+      const players = [...s.players, player].sort((a, b) => a.seat - b.seat);
+      // Si es el primer jugador, ponle el botón de dealer
+      return { ...s, players, buttonSeat: s.buttonSeat ?? seat };
     });
   }, []);
 
@@ -193,7 +187,7 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setState(s => ({ ...s, shotClockSeconds: v }));
   }, []);
 
-  // Empezar una mesa nueva (mantiene a los jugadores, reinicia dinero y cuentas)
+  // Mantiene a los jugadores pero reinicia dinero y cuentas (nueva partida)
   const newSession = useCallback(() => {
     setState(s => ({
       ...s,
@@ -203,9 +197,22 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }));
   }, []);
 
+  // Vacía la mesa por completo (empezar de cero)
+  const clearTable = useCallback(() => {
+    setState(s => ({
+      ...s,
+      players: [],
+      buttonSeat: null,
+      actingSeat: null,
+      handNumber: 1,
+      log: [],
+    }));
+  }, []);
+
   const value = useMemo<Ctx>(
     () => ({
       state,
+      ready,
       addPlayer,
       removePlayer,
       renamePlayer,
@@ -222,9 +229,11 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setShotClock,
       resetCashouts,
       newSession,
+      clearTable,
     }),
     [
       state,
+      ready,
       addPlayer,
       removePlayer,
       renamePlayer,
@@ -241,6 +250,7 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setShotClock,
       resetCashouts,
       newSession,
+      clearTable,
     ],
   );
 

@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { colors } from '../theme/colors';
 import { useAuth } from '../store/AuthContext';
+import { APP_VERSION } from '../version';
 
 export default function AuthScreen() {
   const { login, register } = useAuth();
@@ -22,9 +23,15 @@ export default function AuthScreen() {
   const submit = async () => {
     setError(null);
     setBusy(true);
-    const r = mode === 'login' ? await login(username, password) : await register(username, password);
-    setBusy(false);
-    if (!r.ok) setError(r.error ?? 'Ocurrió un error');
+    try {
+      const r =
+        mode === 'login' ? await login(username, password) : await register(username, password);
+      if (!r.ok) setError(r.error ?? 'Ocurrió un error');
+    } catch (e) {
+      setError('No se pudo procesar. Intenta de nuevo.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -73,6 +80,8 @@ export default function AuthScreen() {
           {mode === 'login' ? '¿No tienes cuenta? Regístrate' : '¿Ya tienes cuenta? Inicia sesión'}
         </Text>
       </TouchableOpacity>
+
+      <Text style={styles.version}>{APP_VERSION}</Text>
     </KeyboardAvoidingView>
   );
 }
@@ -105,4 +114,5 @@ const styles = StyleSheet.create({
   },
   btnText: { color: '#3A2D00', fontSize: 18, fontWeight: '900' },
   switch: { color: colors.blue, fontSize: 15, marginTop: 22, fontWeight: '700' },
+  version: { color: colors.textDim, fontSize: 12, marginTop: 24 },
 });
