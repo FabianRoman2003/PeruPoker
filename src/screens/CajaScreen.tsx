@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import {
   Alert,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -35,7 +37,9 @@ export default function CajaScreen() {
     ]);
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={styles.banner}>
         <Text style={styles.bannerLabel}>DINERO EN MESA</Text>
         <Text style={styles.bannerValue}>{dinero} Bs</Text>
@@ -44,7 +48,10 @@ export default function CajaScreen() {
         </Text>
       </View>
 
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: 24 }}
+        keyboardShouldPersistTaps="handled">
         {players.length === 0 && (
           <View style={styles.empty}>
             <Text style={styles.emptyEmoji}>🪑</Text>
@@ -100,7 +107,7 @@ export default function CajaScreen() {
       <Text style={styles.version}>PeruPoker {APP_VERSION}</Text>
 
       <CierreModal visible={cierreVisible} onClose={() => setCierreVisible(false)} />
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -113,13 +120,15 @@ function CierreModal({ visible, onClose }: { visible: boolean; onClose: () => vo
   const txs = cuadra ? settle(players, boxValue) : [];
 
   return (
-    <Modal visible={visible} animationType="slide" transparent>
-      <View style={styles.modalBg}>
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <KeyboardAvoidingView
+        style={styles.modalBg}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.modalCard}>
           <Text style={styles.modalTitle}>Cierre de mesa</Text>
           <Text style={styles.modalHint}>Cuenta las fichas finales de cada jugador (en Bs):</Text>
 
-          <ScrollView style={{ maxHeight: 280 }}>
+          <ScrollView style={{ maxHeight: 280 }} keyboardShouldPersistTaps="handled">
             {players.map(p => (
               <View key={p.id} style={styles.cashRow}>
                 <Text style={[styles.name, { flex: 1 }]}>{p.name}</Text>
@@ -171,7 +180,7 @@ function CierreModal({ visible, onClose }: { visible: boolean; onClose: () => vo
             </TouchableOpacity>
           </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -251,7 +260,6 @@ const styles = StyleSheet.create({
   },
   cerrarText: { color: '#3A2D00', fontSize: 17, fontWeight: '900' },
   version: { color: colors.textDim, fontSize: 11, textAlign: 'center', marginTop: 8 },
-  // modal
   modalBg: { flex: 1, backgroundColor: '#000A', justifyContent: 'flex-end' },
   modalCard: {
     backgroundColor: colors.bg,

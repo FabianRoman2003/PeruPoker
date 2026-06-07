@@ -24,6 +24,7 @@ export interface SessionState {
   players: Player[];
   buttonSeat: number | null; // asiento con el botón
   actingSeat: number | null; // asiento en acción (reloj)
+  street: number; // 0=Preflop, 1=Flop, 2=Turn, 3=River
   handNumber: number;
   log: BuyinEvent[];
 }

@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Player, SeatStatus, SessionState } from '../types';
-import { advanceButton, activeSeats, nextActiveSeat, positions } from '../logic/poker';
+import { actionOrder, advanceButton, preflopStart } from '../logic/poker';
 
 const STORAGE_KEY = '@perupoker_session';
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -15,6 +15,7 @@ const initialState = (): SessionState => ({
   players: [],
   buttonSeat: null,
   actingSeat: null,
+  street: 0,
   handNumber: 1,
   log: [],
 });
@@ -33,11 +34,10 @@ interface Ctx {
   removeBuyin: (id: string) => void;
   setCashout: (id: string, chips: number | null) => void;
   nextHand: () => void;
-  setActingSeat: (seat: number | null) => void;
-  setBoxValue: (v: number) => void;
+  nextTurn: () => void;
+  prevTurn: () => void;
   setShotClock: (v: number) => void;
   resetCashouts: () => void;
-  newSession: () => void;
   clearTable: () => void;
 }
 
@@ -49,26 +49,24 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [state, setState] = useState<SessionState>(initialState);
   const [ready, setReady] = useState(false);
 
-  // Cargar la sesión guardada al abrir la app
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY).then(raw => {
       if (raw) {
         try {
-          setState(JSON.parse(raw));
+          setState({ ...initialState(), ...JSON.parse(raw) });
         } catch {}
       }
       setReady(true);
     });
   }, []);
 
-  // Guardar automáticamente en cada cambio (después de cargar)
   useEffect(() => {
     if (ready) AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [state, ready]);
 
   const addPlayer = useCallback((name: string) => {
     setState(s => {
-      if (s.players.length >= 9) return s; // máximo 9
+      if (s.players.length >= 9) return s;
       const taken = new Set(s.players.map(p => p.seat));
       let seat = 1;
       while (taken.has(seat)) seat++;
@@ -81,8 +79,9 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
         cashout: null,
       };
       const players = [...s.players, player].sort((a, b) => a.seat - b.seat);
-      // Si es el primer jugador, ponle el botón de dealer
-      return { ...s, players, buttonSeat: s.buttonSeat ?? seat };
+      const buttonSeat = s.buttonSeat ?? seat;
+      const ns = { ...s, players, buttonSeat };
+      return { ...ns, actingSeat: s.actingSeat ?? preflopStart(ns) };
     });
   }, []);
 
@@ -101,26 +100,19 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setState(s => ({
       ...s,
       players: s.players.map(p =>
-        p.id === id
-          ? { ...p, status: STATUS_CYCLE[(STATUS_CYCLE.indexOf(p.status) + 1) % 3] }
-          : p,
+        p.id === id ? { ...p, status: STATUS_CYCLE[(STATUS_CYCLE.indexOf(p.status) + 1) % 3] } : p,
       ),
     }));
   }, []);
 
   const setStatus = useCallback((id: string, status: SeatStatus) => {
-    setState(s => ({
-      ...s,
-      players: s.players.map(p => (p.id === id ? { ...p, status } : p)),
-    }));
+    setState(s => ({ ...s, players: s.players.map(p => (p.id === id ? { ...p, status } : p)) }));
   }, []);
 
-  // Mover el botón de dealer manualmente al asiento elegido
   const setButton = useCallback((seat: number) => {
     setState(s => ({ ...s, buttonSeat: seat }));
   }, []);
 
-  // Cambiar a un jugador de silla. Si la silla está ocupada, intercambia.
   const moveSeat = useCallback((id: string, newSeat: number) => {
     setState(s => {
       const me = s.players.find(p => p.id === id);
@@ -148,62 +140,75 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const removeBuyin = useCallback((id: string) => {
     setState(s => ({
       ...s,
-      players: s.players.map(p =>
-        p.id === id ? { ...p, buyins: Math.max(0, p.buyins - 1) } : p,
-      ),
+      players: s.players.map(p => (p.id === id ? { ...p, buyins: Math.max(0, p.buyins - 1) } : p)),
     }));
   }, []);
 
   const setCashout = useCallback((id: string, chips: number | null) => {
-    setState(s => ({
-      ...s,
-      players: s.players.map(p => (p.id === id ? { ...p, cashout: chips } : p)),
-    }));
+    setState(s => ({ ...s, players: s.players.map(p => (p.id === id ? { ...p, cashout: chips } : p)) }));
   }, []);
 
   const resetCashouts = useCallback(() => {
     setState(s => ({ ...s, players: s.players.map(p => ({ ...p, cashout: null })) }));
   }, []);
 
+  // Nueva mano: rota el botón y vuelve a Preflop (habla el de después de la ciega grande)
   const nextHand = useCallback(() => {
     setState(s => {
       const button = advanceButton(s);
-      const active = activeSeats(s.players);
-      const pos = positions({ ...s, buttonSeat: button });
-      const acting = pos.utg ?? nextActiveSeat(button ?? 0, active);
-      return { ...s, buttonSeat: button, actingSeat: acting, handNumber: s.handNumber + 1 };
+      const ns = { ...s, buttonSeat: button, street: 0 };
+      return { ...ns, actingSeat: preflopStart(ns), handNumber: s.handNumber + 1 };
     });
   }, []);
 
-  const setActingSeat = useCallback((seat: number | null) => {
-    setState(s => ({ ...s, actingSeat: seat }));
+  // Siguiente turno (orden de poker; al acabar la calle pasa a la siguiente; tras el river, nueva mano)
+  const nextTurn = useCallback(() => {
+    setState(s => {
+      const order = actionOrder(s, s.street);
+      if (order.length === 0) return s;
+      const i = s.actingSeat == null ? -1 : order.indexOf(s.actingSeat);
+      if (i < 0) return { ...s, actingSeat: order[0] };
+      if (i < order.length - 1) return { ...s, actingSeat: order[i + 1] };
+      // fin de la calle
+      if (s.street < 3) {
+        const ns = { ...s, street: s.street + 1 };
+        const norder = actionOrder(ns, ns.street);
+        return { ...ns, actingSeat: norder[0] ?? null };
+      }
+      // fin del river -> nueva mano
+      const button = advanceButton(s);
+      const nh = { ...s, buttonSeat: button, street: 0 };
+      return { ...nh, actingSeat: preflopStart(nh), handNumber: s.handNumber + 1 };
+    });
   }, []);
 
-  const setBoxValue = useCallback((v: number) => {
-    setState(s => ({ ...s, boxValue: v }));
+  // Turno anterior (reversa del flujo)
+  const prevTurn = useCallback(() => {
+    setState(s => {
+      const order = actionOrder(s, s.street);
+      if (order.length === 0) return s;
+      const i = s.actingSeat == null ? -1 : order.indexOf(s.actingSeat);
+      if (i > 0) return { ...s, actingSeat: order[i - 1] };
+      if (s.street > 0) {
+        const ps = { ...s, street: s.street - 1 };
+        const porder = actionOrder(ps, ps.street);
+        return { ...ps, actingSeat: porder[porder.length - 1] ?? null };
+      }
+      return s; // inicio de la mano: no retrocede más
+    });
   }, []);
 
   const setShotClock = useCallback((v: number) => {
     setState(s => ({ ...s, shotClockSeconds: v }));
   }, []);
 
-  // Mantiene a los jugadores pero reinicia dinero y cuentas (nueva partida)
-  const newSession = useCallback(() => {
-    setState(s => ({
-      ...s,
-      players: s.players.map(p => ({ ...p, buyins: 1, cashout: null })),
-      handNumber: 1,
-      log: [],
-    }));
-  }, []);
-
-  // Vacía la mesa por completo (empezar de cero)
   const clearTable = useCallback(() => {
     setState(s => ({
       ...s,
       players: [],
       buttonSeat: null,
       actingSeat: null,
+      street: 0,
       handNumber: 1,
       log: [],
     }));
@@ -224,11 +229,10 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       removeBuyin,
       setCashout,
       nextHand,
-      setActingSeat,
-      setBoxValue,
+      nextTurn,
+      prevTurn,
       setShotClock,
       resetCashouts,
-      newSession,
       clearTable,
     }),
     [
@@ -245,11 +249,10 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       removeBuyin,
       setCashout,
       nextHand,
-      setActingSeat,
-      setBoxValue,
+      nextTurn,
+      prevTurn,
       setShotClock,
       resetCashouts,
-      newSession,
       clearTable,
     ],
   );

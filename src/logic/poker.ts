@@ -66,3 +66,35 @@ export function handsUntilButton(seat: number, state: SessionState): number {
   const idx = order.indexOf(seat);
   return idx < 0 ? -1 : idx;
 }
+
+// ====== Flujo de acción de Texas Hold'em ======
+export const STREET_NAMES = ['Preflop', 'Flop', 'Turn', 'River'];
+
+// Primero en hablar PREFLOP = el de después de la ciega grande (UTG)
+export function preflopStart(state: SessionState): number | null {
+  const active = activeSeats(state.players);
+  if (active.length === 0) return null;
+  const p = positions(state);
+  if (p.bb == null) return active[0];
+  return nextActiveSeat(p.bb, active);
+}
+
+// Primero en hablar POSTFLOP = el de después del botón (la ciega pequeña)
+export function postflopStart(state: SessionState): number | null {
+  const active = activeSeats(state.players);
+  if (active.length === 0) return null;
+  const p = positions(state);
+  if (p.button == null) return active[0];
+  return nextActiveSeat(p.button, active);
+}
+
+// Orden de acción de la calle (lista circular de asientos que juegan)
+export function actionOrder(state: SessionState, street: number): number[] {
+  const active = activeSeats(state.players);
+  if (active.length === 0) return [];
+  const start = street === 0 ? preflopStart(state) : postflopStart(state);
+  if (start == null) return active;
+  const i = active.indexOf(start);
+  if (i < 0) return active;
+  return [...active.slice(i), ...active.slice(0, i)];
+}

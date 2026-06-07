@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -12,7 +14,7 @@ import {
 } from 'react-native';
 import { colors } from '../theme/colors';
 import { useSession } from '../store/SessionContext';
-import { activeSeats, dealerOrder, nextActiveSeat, positions } from '../logic/poker';
+import { actionOrder, positions, STREET_NAMES } from '../logic/poker';
 import { SeatStatus } from '../types';
 
 const STATUS_COLOR: Record<SeatStatus, string> = {
@@ -39,30 +41,31 @@ export default function MesaScreen() {
   const {
     state,
     nextHand,
+    nextTurn,
+    prevTurn,
     setButton,
     setStatus,
     renamePlayer,
     removePlayer,
     moveSeat,
     addPlayer,
-    setActingSeat,
     setShotClock,
   } = useSession();
   const { players } = state;
   const pos = positions(state);
-  const active = activeSeats(players);
-  const order = dealerOrder(state);
+  const order = actionOrder(state, state.street);
   const nameOf = (seat: number | null) => players.find(p => p.seat === seat)?.name ?? '—';
+
+  const acting = state.actingSeat ?? order[0] ?? null;
+  const actingName = nameOf(acting);
+  const idx = acting == null ? -1 : order.indexOf(acting);
+  const nextSeat = idx >= 0 && idx < order.length - 1 ? order[idx + 1] : null;
+  const nextLabel = nextSeat != null ? nameOf(nextSeat) : 'siguiente calle';
 
   // ---- Reloj ----
   const full = state.shotClockSeconds;
   const [remaining, setRemaining] = useState(full);
   const [running, setRunning] = useState(false);
-
-  const acting = state.actingSeat ?? pos.utg ?? active[0] ?? null;
-  const actingName = nameOf(acting);
-  const nextSeat = acting != null ? nextActiveSeat(acting, active) : active[0] ?? null;
-  const nextName = nameOf(nextSeat);
 
   useEffect(() => {
     if (!running) return;
@@ -78,11 +81,15 @@ export default function MesaScreen() {
     }
   }, [remaining]);
 
-  const pasarTurno = () => {
-    if (acting != null) setActingSeat(nextActiveSeat(acting, active));
-    else if (active.length) setActingSeat(active[0]);
+  const siguiente = () => {
+    nextTurn();
     setRemaining(full);
     setRunning(true);
+  };
+  const anterior = () => {
+    prevTurn();
+    setRemaining(full);
+    setRunning(false);
   };
   const reiniciar = () => {
     setRemaining(full);
@@ -124,148 +131,170 @@ export default function MesaScreen() {
   const danger = remaining <= 5;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 28 }}>
-      {/* Posiciones */}
-      <View style={styles.posBar}>
-        <Pos label="🔘 Dealer" name={nameOf(pos.button)} c={colors.gold} />
-        <Pos label="1 Ciega" name={nameOf(pos.sb)} c={colors.blue} />
-        <Pos label="2 Ciega" name={nameOf(pos.bb)} c={colors.red} />
-      </View>
+    <KeyboardAvoidingView
+      style={{ flex: 1, backgroundColor: colors.bg }}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={{ paddingBottom: 48 }}
+        keyboardShouldPersistTaps="handled">
+        {/* Posiciones */}
+        <View style={styles.posBar}>
+          <Pos label="🔘 Dealer" name={nameOf(pos.button)} c={colors.gold} />
+          <Pos label="1 Ciega" name={nameOf(pos.sb)} c={colors.blue} />
+          <Pos label="2 Ciega" name={nameOf(pos.bb)} c={colors.red} />
+        </View>
 
-      {/* MESA con cronómetro al centro y jugador iluminado */}
-      <View style={styles.table}>
-        <View style={styles.tableCenter}>
-          <Text style={styles.enAccion}>EN ACCIÓN</Text>
-          <Text style={styles.actingNameBig} numberOfLines={1}>
+        {/* MESA (jugador en acción iluminado) */}
+        <View style={styles.table}>
+          <View style={styles.tableCenter}>
+            <Text style={styles.streetBig}>{STREET_NAMES[state.street]}</Text>
+            <Text style={styles.manoMid}>Mano #{state.handNumber}</Text>
+            <Text style={styles.blindsMid}>
+              {state.smallBlind}/{state.bigBlind}
+            </Text>
+          </View>
+
+          {players.map((p, i) => {
+            const angle = (-90 + (360 * i) / Math.max(N, 1)) * (Math.PI / 180);
+            const x = 50 + RX * Math.cos(angle);
+            const y = 50 + RY * Math.sin(angle);
+            const isBtn = pos.button === p.seat;
+            const isSb = pos.sb === p.seat;
+            const isBb = pos.bb === p.seat;
+            const isActing = acting === p.seat;
+            return (
+              <TouchableOpacity
+                key={p.id}
+                onPress={() => openSeat(p.id, p.name)}
+                style={[
+                  styles.seat,
+                  {
+                    left: `${x}%`,
+                    top: `${y}%`,
+                    borderColor: isActing ? colors.gold : isBtn ? colors.gold : STATUS_COLOR[p.status],
+                    borderWidth: isActing ? 4 : isBtn ? 3 : 2,
+                    opacity: p.status === 'descansa' ? 0.5 : 1,
+                  },
+                  isActing && styles.seatActing,
+                ]}>
+                <View style={styles.badges}>
+                  {isBtn && <Badge text="D" bg={colors.gold} fg="#3A2D00" />}
+                  {isSb && <Badge text="1" bg={colors.blue} fg="#fff" />}
+                  {isBb && <Badge text="2" bg={colors.red} fg="#fff" />}
+                </View>
+                <Text style={styles.seatName} numberOfLines={1}>
+                  {p.name}
+                </Text>
+                <Text style={[styles.seatStatus, { color: isActing ? colors.gold : STATUS_COLOR[p.status] }]}>
+                  {isActing ? '▶ habla' : STATUS_LABEL[p.status]}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {/* RELOJ debajo de la mesa */}
+        <View style={styles.clockCard}>
+          <Text style={styles.clockStreet}>
+            {STREET_NAMES[state.street]} · le toca a
+          </Text>
+          <Text style={styles.clockActing} numberOfLines={1}>
             {actingName}
           </Text>
-          <Text style={[styles.bigCount, { color: danger ? colors.red : '#fff' }]}>{remaining}</Text>
-          <Text style={styles.manoTiny}>
-            Mano #{state.handNumber} · {state.smallBlind}/{state.bigBlind}
-          </Text>
-        </View>
 
-        {players.map((p, i) => {
-          const angle = (-90 + (360 * i) / Math.max(N, 1)) * (Math.PI / 180);
-          const x = 50 + RX * Math.cos(angle);
-          const y = 50 + RY * Math.sin(angle);
-          const isBtn = pos.button === p.seat;
-          const isSb = pos.sb === p.seat;
-          const isBb = pos.bb === p.seat;
-          const isActing = acting === p.seat;
-          return (
-            <TouchableOpacity
-              key={p.id}
-              onPress={() => openSeat(p.id, p.name)}
-              style={[
-                styles.seat,
-                {
-                  left: `${x}%`,
-                  top: `${y}%`,
-                  borderColor: isActing ? colors.gold : isBtn ? colors.gold : STATUS_COLOR[p.status],
-                  borderWidth: isActing ? 4 : isBtn ? 3 : 2,
-                  opacity: p.status === 'descansa' ? 0.5 : 1,
-                },
-                isActing && styles.seatActing,
-              ]}>
-              <View style={styles.badges}>
-                {isBtn && <Badge text="D" bg={colors.gold} fg="#3A2D00" />}
-                {isSb && <Badge text="1" bg={colors.blue} fg="#fff" />}
-                {isBb && <Badge text="2" bg={colors.red} fg="#fff" />}
-              </View>
-              <Text style={styles.seatName} numberOfLines={1}>
-                {p.name}
-              </Text>
-              <Text style={[styles.seatStatus, { color: STATUS_COLOR[p.status] }]}>
-                {isActing ? `⏱ ${remaining}s` : STATUS_LABEL[p.status]}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      <Text style={styles.sigue}>
-        Sigue: <Text style={{ color: colors.gold, fontWeight: '800' }}>{nextName}</Text>
-      </Text>
-
-      {/* Botón gigante de pasar turno */}
-      <TouchableOpacity style={styles.bigBtn} onPress={pasarTurno}>
-        <Text style={styles.bigBtnText}>SIGUIENTE TURNO ▶</Text>
-      </TouchableOpacity>
-
-      <View style={styles.row3}>
-        <TouchableOpacity
-          style={[styles.ctrl, running && styles.ctrlActive]}
-          onPress={() => setRunning(r => !r)}>
-          <Text style={styles.ctrlText}>{running ? '⏸  Pausar' : '▶  Iniciar'}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.ctrl} onPress={reiniciar}>
-          <Text style={styles.ctrlText}>↻  Reiniciar</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Tiempo por jugador: presets + personalizado */}
-      <Text style={styles.cfgLabel}>⏱️ Tiempo por jugador</Text>
-      <View style={styles.presets}>
-        {PRESETS.map(s => {
-          const on = full === s;
-          return (
-            <TouchableOpacity
-              key={s}
-              style={[styles.preset, on && styles.presetOn]}
-              onPress={() => setDuration(s)}>
-              <Text style={[styles.presetText, on && { color: '#3A2D00' }]}>{s}s</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-      <View style={styles.customRow}>
-        <TextInput
-          style={styles.customInput}
-          keyboardType="number-pad"
-          placeholder="Personalizado (seg)"
-          placeholderTextColor={colors.textDim}
-          value={customTime}
-          onChangeText={setCustomTime}
-          onSubmitEditing={aplicarCustom}
-        />
-        <TouchableOpacity style={styles.customBtn} onPress={aplicarCustom}>
-          <Text style={styles.customBtnText}>Poner</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Rotar dealer / nueva mano */}
-      <TouchableOpacity style={styles.manoBtn} onPress={nextHand}>
-        <Text style={styles.manoText}>🔄 Nueva mano (rota el dealer)</Text>
-      </TouchableOpacity>
-
-      {/* Añadir jugador */}
-      {players.length < 9 && (
-        <View style={styles.addRow}>
-          <TextInput
-            style={styles.addInput}
-            placeholder="Nombre del nuevo jugador…"
-            placeholderTextColor={colors.textDim}
-            value={newName}
-            onChangeText={setNewName}
-            onSubmitEditing={add}
-          />
-          <TouchableOpacity style={styles.addBtn} onPress={add}>
-            <Text style={styles.addBtnText}>➕ Añadir</Text>
+          <TouchableOpacity activeOpacity={0.8} onPress={siguiente} style={styles.numberWrap}>
+            <Text style={[styles.bigNumber, { color: danger ? colors.red : '#fff' }]}>{remaining}</Text>
+            <Text style={styles.numberHint}>toca el número para pasar de turno</Text>
           </TouchableOpacity>
-        </View>
-      )}
 
-      {players.length === 0 && (
-        <Text style={styles.emptyHint}>Añade jugadores para ver la mesa y usar el reloj.</Text>
-      )}
+          <Text style={styles.sigue}>
+            Sigue: <Text style={{ color: colors.gold, fontWeight: '800' }}>{nextLabel}</Text>
+          </Text>
+
+          <View style={styles.turnRow}>
+            <TouchableOpacity style={styles.turnBtn} onPress={anterior}>
+              <Text style={styles.turnBtnText}>◀ Anterior</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.turnBtn, styles.turnNext]} onPress={siguiente}>
+              <Text style={[styles.turnBtnText, { color: '#3A2D00' }]}>Siguiente ▶</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.row3}>
+            <TouchableOpacity
+              style={[styles.ctrl, running && styles.ctrlActive]}
+              onPress={() => setRunning(r => !r)}>
+              <Text style={styles.ctrlText}>{running ? '⏸  Pausar' : '▶  Iniciar'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.ctrl} onPress={reiniciar}>
+              <Text style={styles.ctrlText}>↻  Reiniciar</Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.cfgLabel}>⏱️ Tiempo por jugador</Text>
+          <View style={styles.presets}>
+            {PRESETS.map(s => {
+              const on = full === s;
+              return (
+                <TouchableOpacity
+                  key={s}
+                  style={[styles.preset, on && styles.presetOn]}
+                  onPress={() => setDuration(s)}>
+                  <Text style={[styles.presetText, on && { color: '#3A2D00' }]}>{s}s</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <View style={styles.customRow}>
+            <TextInput
+              style={styles.customInput}
+              keyboardType="number-pad"
+              placeholder="Personalizado (seg)"
+              placeholderTextColor={colors.textDim}
+              value={customTime}
+              onChangeText={setCustomTime}
+              onSubmitEditing={aplicarCustom}
+            />
+            <TouchableOpacity style={styles.customBtn} onPress={aplicarCustom}>
+              <Text style={styles.customBtnText}>Poner</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <TouchableOpacity style={styles.manoBtn} onPress={nextHand}>
+          <Text style={styles.manoText}>🔄 Nueva mano (rota el dealer)</Text>
+        </TouchableOpacity>
+
+        {players.length < 9 && (
+          <View style={styles.addRow}>
+            <TextInput
+              style={styles.addInput}
+              placeholder="Nombre del nuevo jugador…"
+              placeholderTextColor={colors.textDim}
+              value={newName}
+              onChangeText={setNewName}
+              onSubmitEditing={add}
+            />
+            <TouchableOpacity style={styles.addBtn} onPress={add}>
+              <Text style={styles.addBtnText}>➕ Añadir</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {players.length === 0 && (
+          <Text style={styles.emptyHint}>Añade jugadores para ver la mesa y usar el reloj.</Text>
+        )}
+      </ScrollView>
 
       {/* Menú de edición del asiento */}
       <Modal visible={!!selected} transparent animationType="slide" onRequestClose={close}>
-        <View style={styles.modalBg}>
+        <KeyboardAvoidingView
+          style={styles.modalBg}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <View style={styles.modalCard}>
             {selected && (
-              <ScrollView>
+              <ScrollView keyboardShouldPersistTaps="handled">
                 <Text style={styles.modalTitle}>Jugador en silla #{selected.seat}</Text>
 
                 <TextInput
@@ -361,9 +390,9 @@ export default function MesaScreen() {
               </ScrollView>
             )}
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
-    </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -393,9 +422,9 @@ const styles = StyleSheet.create({
   posLabel: { fontSize: 12, fontWeight: '800' },
   posName: { color: colors.text, fontSize: 15, fontWeight: '700', marginTop: 2 },
   table: {
-    height: 330,
+    height: 300,
     backgroundColor: colors.felt,
-    borderRadius: 165,
+    borderRadius: 150,
     borderWidth: 6,
     borderColor: colors.feltDark,
     marginVertical: 6,
@@ -404,14 +433,13 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: '50%',
     top: '50%',
-    transform: [{ translateX: -80 }, { translateY: -70 }],
+    transform: [{ translateX: -70 }, { translateY: -45 }],
     alignItems: 'center',
-    width: 160,
+    width: 140,
   },
-  enAccion: { color: '#CDEBDD', fontSize: 12, letterSpacing: 2, fontWeight: '800' },
-  actingNameBig: { color: '#fff', fontSize: 20, fontWeight: '900' },
-  bigCount: { fontSize: 60, fontWeight: '900', lineHeight: 66 },
-  manoTiny: { color: '#CDEBDD', fontSize: 12 },
+  streetBig: { color: '#fff', fontSize: 26, fontWeight: '900' },
+  manoMid: { color: '#CDEBDD', fontSize: 14, marginTop: 2 },
+  blindsMid: { color: '#CDEBDD', fontSize: 14 },
   seat: {
     position: 'absolute',
     width: 72,
@@ -443,32 +471,51 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 10, fontWeight: '900' },
   seatName: { color: colors.text, fontSize: 13, fontWeight: '800' },
   seatStatus: { fontSize: 10, fontWeight: '800' },
-  sigue: { color: colors.textDim, fontSize: 15, textAlign: 'center', marginTop: 8 },
-  bigBtn: {
-    backgroundColor: colors.gold,
+  // reloj
+  clockCard: {
+    backgroundColor: colors.card,
     borderRadius: 18,
-    paddingVertical: 22,
+    padding: 16,
+    marginTop: 10,
     alignItems: 'center',
-    marginTop: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  bigBtnText: { color: '#3A2D00', fontSize: 23, fontWeight: '900' },
-  row3: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  clockStreet: { color: colors.textDim, fontSize: 13, fontWeight: '700', letterSpacing: 1 },
+  clockActing: { color: colors.gold, fontSize: 26, fontWeight: '900', marginBottom: 2 },
+  numberWrap: { alignItems: 'center', paddingVertical: 4 },
+  bigNumber: { fontSize: 76, fontWeight: '900', lineHeight: 82 },
+  numberHint: { color: colors.textDim, fontSize: 12, marginTop: -4 },
+  sigue: { color: colors.textDim, fontSize: 14, marginTop: 4, marginBottom: 10 },
+  turnRow: { flexDirection: 'row', gap: 10, alignSelf: 'stretch' },
+  turnBtn: {
+    flex: 1,
+    backgroundColor: colors.cardLight,
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  turnNext: { backgroundColor: colors.gold, borderColor: colors.gold },
+  turnBtnText: { color: colors.text, fontSize: 16, fontWeight: '900' },
+  row3: { flexDirection: 'row', gap: 10, marginTop: 10, alignSelf: 'stretch' },
   ctrl: {
     flex: 1,
-    backgroundColor: colors.card,
+    backgroundColor: colors.bg,
     borderRadius: 14,
-    padding: 15,
+    padding: 14,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: colors.border,
   },
   ctrlActive: { borderColor: colors.green },
   ctrlText: { color: colors.text, fontSize: 15, fontWeight: '800' },
-  cfgLabel: { color: colors.textDim, fontWeight: '700', marginTop: 18, marginBottom: 8 },
-  presets: { flexDirection: 'row', gap: 8 },
+  cfgLabel: { color: colors.textDim, fontWeight: '700', marginTop: 16, marginBottom: 8, alignSelf: 'flex-start' },
+  presets: { flexDirection: 'row', gap: 8, alignSelf: 'stretch' },
   preset: {
     flex: 1,
-    backgroundColor: colors.card,
+    backgroundColor: colors.bg,
     borderRadius: 12,
     paddingVertical: 12,
     alignItems: 'center',
@@ -477,10 +524,10 @@ const styles = StyleSheet.create({
   },
   presetOn: { backgroundColor: colors.gold, borderColor: colors.gold },
   presetText: { color: colors.text, fontWeight: '800', fontSize: 14 },
-  customRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
+  customRow: { flexDirection: 'row', gap: 8, marginTop: 8, alignSelf: 'stretch' },
   customInput: {
     flex: 1,
-    backgroundColor: colors.card,
+    backgroundColor: colors.bg,
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -502,7 +549,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 14,
     alignItems: 'center',
-    marginTop: 16,
+    marginTop: 14,
     borderWidth: 1,
     borderColor: colors.border,
   },
@@ -528,7 +575,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 22,
     borderTopRightRadius: 22,
     padding: 18,
-    maxHeight: '85%',
+    maxHeight: '88%',
     borderTopWidth: 1,
     borderColor: colors.border,
   },
