@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -13,7 +13,7 @@ import {
   View,
 } from 'react-native';
 import { colors } from '../theme/colors';
-import { useSession } from '../store/SessionContext';
+import { computeRemaining, useSession } from '../store/SessionContext';
 import { actionOrder, positions, STREET_NAMES } from '../logic/poker';
 import { SeatStatus } from '../types';
 
@@ -40,9 +40,13 @@ function buzz(ms: number) {
 export default function MesaScreen() {
   const {
     state,
+    online,
     nextHand,
     nextTurn,
     prevTurn,
+    startTimer,
+    pauseTimer,
+    resetTimer,
     setButton,
     setStatus,
     renamePlayer,
@@ -52,6 +56,7 @@ export default function MesaScreen() {
     setShotClock,
   } = useSession();
   const { players } = state;
+  const viewer = online.role === 'viewer';
   const pos = positions(state);
   const order = actionOrder(state, state.street);
   const nameOf = (seat: number | null) => players.find(p => p.seat === seat)?.name ?? '—';
@@ -62,46 +67,26 @@ export default function MesaScreen() {
   const nextSeat = idx >= 0 && idx < order.length - 1 ? order[idx + 1] : null;
   const nextLabel = nextSeat != null ? nameOf(nextSeat) : 'siguiente calle';
 
-  // ---- Reloj ----
-  const full = state.shotClockSeconds;
-  const [remaining, setRemaining] = useState(full);
-  const [running, setRunning] = useState(false);
-
+  // Reloj: se calcula desde el estado (marca de tiempo) y se refresca con un tick
+  const [, force] = useState(0);
   useEffect(() => {
-    if (!running) return;
-    const id = setInterval(() => setRemaining(r => Math.max(0, r - 1)), 1000);
-    return () => clearInterval(id);
-  }, [running]);
+    if (!state.timerRunning) return;
+    const t = setInterval(() => force(n => n + 1), 500);
+    return () => clearInterval(t);
+  }, [state.timerRunning, state.turnStartedAt]);
 
+  const remaining = computeRemaining(state, Date.now());
+  const danger = remaining <= 5;
+
+  // Vibración al cruzar 5 y 0 (en todos los celulares)
+  const prevRem = useRef(remaining);
   useEffect(() => {
-    if (remaining === 5) buzz(200);
-    if (remaining === 0) {
-      buzz(500);
-      setRunning(false);
-    }
+    const p = prevRem.current;
+    if (p > 5 && remaining <= 5 && remaining > 0) buzz(200);
+    if (p > 0 && remaining === 0) buzz(500);
+    prevRem.current = remaining;
   }, [remaining]);
 
-  const siguiente = () => {
-    nextTurn();
-    setRemaining(full);
-    setRunning(true);
-  };
-  const anterior = () => {
-    prevTurn();
-    setRemaining(full);
-    setRunning(false);
-  };
-  const reiniciar = () => {
-    setRemaining(full);
-    setRunning(false);
-  };
-  const setDuration = (secs: number) => {
-    setShotClock(secs);
-    setRemaining(secs);
-    setRunning(false);
-  };
-
-  // ---- Edición de asientos ----
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [newName, setNewName] = useState('');
@@ -109,6 +94,7 @@ export default function MesaScreen() {
   const selected = players.find(p => p.id === selectedId) ?? null;
 
   const openSeat = (id: string, name: string) => {
+    if (viewer) return;
     setSelectedId(id);
     setEditName(name);
   };
@@ -120,7 +106,7 @@ export default function MesaScreen() {
   const aplicarCustom = () => {
     const n = parseInt(customTime, 10);
     if (n && n > 0) {
-      setDuration(Math.min(n, 999));
+      setShotClock(Math.min(n, 999));
       setCustomTime('');
     }
   };
@@ -128,7 +114,7 @@ export default function MesaScreen() {
   const N = players.length;
   const RX = 40;
   const RY = 38;
-  const danger = remaining <= 5;
+  const full = state.shotClockSeconds;
 
   return (
     <KeyboardAvoidingView
@@ -138,14 +124,18 @@ export default function MesaScreen() {
         style={styles.container}
         contentContainerStyle={{ paddingBottom: 48 }}
         keyboardShouldPersistTaps="handled">
-        {/* Posiciones */}
+        {viewer && (
+          <View style={styles.viewerBar}>
+            <Text style={styles.viewerText}>👁 Viendo en vivo {online.hostName ? `· mesa de ${online.hostName}` : ''} — solo el host controla</Text>
+          </View>
+        )}
+
         <View style={styles.posBar}>
           <Pos label="🔘 Dealer" name={nameOf(pos.button)} c={colors.gold} />
           <Pos label="1 Ciega" name={nameOf(pos.sb)} c={colors.blue} />
           <Pos label="2 Ciega" name={nameOf(pos.bb)} c={colors.red} />
         </View>
 
-        {/* MESA (jugador en acción iluminado) */}
         <View style={styles.table}>
           <View style={styles.tableCenter}>
             <Text style={styles.streetBig}>{STREET_NAMES[state.street]}</Text>
@@ -166,6 +156,7 @@ export default function MesaScreen() {
             return (
               <TouchableOpacity
                 key={p.id}
+                activeOpacity={viewer ? 1 : 0.6}
                 onPress={() => openSeat(p.id, p.name)}
                 style={[
                   styles.seat,
@@ -196,98 +187,105 @@ export default function MesaScreen() {
 
         {/* RELOJ debajo de la mesa */}
         <View style={styles.clockCard}>
-          <Text style={styles.clockStreet}>
-            {STREET_NAMES[state.street]} · le toca a
-          </Text>
+          <Text style={styles.clockStreet}>{STREET_NAMES[state.street]} · le toca a</Text>
           <Text style={styles.clockActing} numberOfLines={1}>
             {actingName}
           </Text>
 
-          <TouchableOpacity activeOpacity={0.8} onPress={siguiente} style={styles.numberWrap}>
+          <TouchableOpacity activeOpacity={viewer ? 1 : 0.8} onPress={() => !viewer && nextTurn()} style={styles.numberWrap}>
             <Text style={[styles.bigNumber, { color: danger ? colors.red : '#fff' }]}>{remaining}</Text>
-            <Text style={styles.numberHint}>toca el número para pasar de turno</Text>
+            <Text style={styles.numberHint}>{viewer ? 'en vivo' : 'toca el número para pasar de turno'}</Text>
           </TouchableOpacity>
 
           <Text style={styles.sigue}>
             Sigue: <Text style={{ color: colors.gold, fontWeight: '800' }}>{nextLabel}</Text>
           </Text>
 
-          <View style={styles.turnRow}>
-            <TouchableOpacity style={styles.turnBtn} onPress={anterior}>
-              <Text style={styles.turnBtnText}>◀ Anterior</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.turnBtn, styles.turnNext]} onPress={siguiente}>
-              <Text style={[styles.turnBtnText, { color: '#3A2D00' }]}>Siguiente ▶</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.row3}>
-            <TouchableOpacity
-              style={[styles.ctrl, running && styles.ctrlActive]}
-              onPress={() => setRunning(r => !r)}>
-              <Text style={styles.ctrlText}>{running ? '⏸  Pausar' : '▶  Iniciar'}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.ctrl} onPress={reiniciar}>
-              <Text style={styles.ctrlText}>↻  Reiniciar</Text>
-            </TouchableOpacity>
-          </View>
-
-          <Text style={styles.cfgLabel}>⏱️ Tiempo por jugador</Text>
-          <View style={styles.presets}>
-            {PRESETS.map(s => {
-              const on = full === s;
-              return (
-                <TouchableOpacity
-                  key={s}
-                  style={[styles.preset, on && styles.presetOn]}
-                  onPress={() => setDuration(s)}>
-                  <Text style={[styles.presetText, on && { color: '#3A2D00' }]}>{s}s</Text>
+          {!viewer && (
+            <>
+              <View style={styles.turnRow}>
+                <TouchableOpacity style={styles.turnBtn} onPress={prevTurn}>
+                  <Text style={styles.turnBtnText}>◀ Anterior</Text>
                 </TouchableOpacity>
-              );
-            })}
-          </View>
-          <View style={styles.customRow}>
-            <TextInput
-              style={styles.customInput}
-              keyboardType="number-pad"
-              placeholder="Personalizado (seg)"
-              placeholderTextColor={colors.textDim}
-              value={customTime}
-              onChangeText={setCustomTime}
-              onSubmitEditing={aplicarCustom}
-            />
-            <TouchableOpacity style={styles.customBtn} onPress={aplicarCustom}>
-              <Text style={styles.customBtnText}>Poner</Text>
-            </TouchableOpacity>
-          </View>
+                <TouchableOpacity style={[styles.turnBtn, styles.turnNext]} onPress={nextTurn}>
+                  <Text style={[styles.turnBtnText, { color: '#3A2D00' }]}>Siguiente ▶</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.row3}>
+                <TouchableOpacity
+                  style={[styles.ctrl, state.timerRunning && styles.ctrlActive]}
+                  onPress={() => (state.timerRunning ? pauseTimer() : startTimer())}>
+                  <Text style={styles.ctrlText}>{state.timerRunning ? '⏸  Pausar' : '▶  Iniciar'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.ctrl} onPress={resetTimer}>
+                  <Text style={styles.ctrlText}>↻  Reiniciar</Text>
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.cfgLabel}>⏱️ Tiempo por jugador</Text>
+              <View style={styles.presets}>
+                {PRESETS.map(s => {
+                  const on = full === s;
+                  return (
+                    <TouchableOpacity
+                      key={s}
+                      style={[styles.preset, on && styles.presetOn]}
+                      onPress={() => setShotClock(s)}>
+                      <Text style={[styles.presetText, on && { color: '#3A2D00' }]}>{s}s</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <View style={styles.customRow}>
+                <TextInput
+                  style={styles.customInput}
+                  keyboardType="number-pad"
+                  placeholder="Personalizado (seg)"
+                  placeholderTextColor={colors.textDim}
+                  value={customTime}
+                  onChangeText={setCustomTime}
+                  onSubmitEditing={aplicarCustom}
+                />
+                <TouchableOpacity style={styles.customBtn} onPress={aplicarCustom}>
+                  <Text style={styles.customBtnText}>Poner</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
         </View>
 
-        <TouchableOpacity style={styles.manoBtn} onPress={nextHand}>
-          <Text style={styles.manoText}>🔄 Nueva mano (rota el dealer)</Text>
-        </TouchableOpacity>
-
-        {players.length < 9 && (
-          <View style={styles.addRow}>
-            <TextInput
-              style={styles.addInput}
-              placeholder="Nombre del nuevo jugador…"
-              placeholderTextColor={colors.textDim}
-              value={newName}
-              onChangeText={setNewName}
-              onSubmitEditing={add}
-            />
-            <TouchableOpacity style={styles.addBtn} onPress={add}>
-              <Text style={styles.addBtnText}>➕ Añadir</Text>
+        {!viewer && (
+          <>
+            <TouchableOpacity style={styles.manoBtn} onPress={nextHand}>
+              <Text style={styles.manoText}>🔄 Nueva mano (rota el dealer)</Text>
             </TouchableOpacity>
-          </View>
+
+            {players.length < 9 && (
+              <View style={styles.addRow}>
+                <TextInput
+                  style={styles.addInput}
+                  placeholder="Nombre del nuevo jugador…"
+                  placeholderTextColor={colors.textDim}
+                  value={newName}
+                  onChangeText={setNewName}
+                  onSubmitEditing={add}
+                />
+                <TouchableOpacity style={styles.addBtn} onPress={add}>
+                  <Text style={styles.addBtnText}>➕ Añadir</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </>
         )}
 
         {players.length === 0 && (
-          <Text style={styles.emptyHint}>Añade jugadores para ver la mesa y usar el reloj.</Text>
+          <Text style={styles.emptyHint}>
+            {viewer ? 'Esperando a que el host arme la mesa…' : 'Añade jugadores para ver la mesa y usar el reloj.'}
+          </Text>
         )}
       </ScrollView>
 
-      {/* Menú de edición del asiento */}
       <Modal visible={!!selected} transparent animationType="slide" onRequestClose={close}>
         <KeyboardAvoidingView
           style={styles.modalBg}
@@ -417,6 +415,8 @@ function Pos({ label, name, c }: { label: string; name: string; c: string }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg, padding: 14 },
+  viewerBar: { backgroundColor: '#16324a', borderRadius: 12, padding: 10, marginBottom: 8, borderWidth: 1, borderColor: colors.blue },
+  viewerText: { color: '#Cfe6ff', fontWeight: '700', fontSize: 13, textAlign: 'center' },
   posBar: { flexDirection: 'row', gap: 8, marginBottom: 8 },
   posItem: { flex: 1, backgroundColor: colors.card, borderRadius: 12, padding: 10, alignItems: 'center' },
   posLabel: { fontSize: 12, fontWeight: '800' },
@@ -460,18 +460,10 @@ const styles = StyleSheet.create({
     elevation: 16,
   },
   badges: { flexDirection: 'row', gap: 2, height: 15 },
-  badge: {
-    minWidth: 15,
-    height: 15,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 3,
-  },
+  badge: { minWidth: 15, height: 15, borderRadius: 8, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
   badgeText: { fontSize: 10, fontWeight: '900' },
   seatName: { color: colors.text, fontSize: 13, fontWeight: '800' },
   seatStatus: { fontSize: 10, fontWeight: '800' },
-  // reloj
   clockCard: {
     backgroundColor: colors.card,
     borderRadius: 18,
@@ -568,7 +560,6 @@ const styles = StyleSheet.create({
   addBtn: { backgroundColor: colors.green, borderRadius: 12, paddingHorizontal: 16, justifyContent: 'center' },
   addBtnText: { color: '#06301E', fontWeight: '900' },
   emptyHint: { color: colors.textDim, fontSize: 14, textAlign: 'center', marginTop: 16 },
-  // modal
   modalBg: { flex: 1, backgroundColor: '#000A', justifyContent: 'flex-end' },
   modalCard: {
     backgroundColor: colors.bg,
@@ -618,14 +609,7 @@ const styles = StyleSheet.create({
   },
   statusBtnText: { color: colors.text, fontWeight: '800', fontSize: 13 },
   modalBtns: { flexDirection: 'row', gap: 10, marginTop: 18, marginBottom: 6 },
-  removeBtn: {
-    flex: 1,
-    borderRadius: 12,
-    padding: 14,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.red,
-  },
+  removeBtn: { flex: 1, borderRadius: 12, padding: 14, alignItems: 'center', borderWidth: 1, borderColor: colors.red },
   removeText: { color: colors.red, fontWeight: '800' },
   doneBtn: { flex: 2, backgroundColor: colors.green, borderRadius: 12, padding: 14, alignItems: 'center' },
   doneText: { color: '#06301E', fontWeight: '900', fontSize: 16 },

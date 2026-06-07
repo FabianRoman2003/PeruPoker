@@ -27,6 +27,18 @@ export interface SessionState {
   street: number; // 0=Preflop, 1=Flop, 2=Turn, 3=River
   handNumber: number;
   log: BuyinEvent[];
+  // Reloj basado en marca de tiempo (se sincroniza fluido entre celulares)
+  timerRunning: boolean;
+  turnStartedAt: number | null; // epoch ms cuando arrancó el conteo actual
+  timerBase: number; // segundos restantes al momento de turnStartedAt
+}
+
+export type OnlineRole = 'off' | 'host' | 'viewer';
+
+export interface OnlineState {
+  role: OnlineRole;
+  code: string | null;
+  hostName?: string | null;
 }
 
 export interface Transaction {
